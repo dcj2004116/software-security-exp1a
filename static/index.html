@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>网络嗅探器 · Sniffer (Exp 1A)</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#161a23; --panel2:#1c2230; --border:#2a3142;
+    --text:#d7dce6; --muted:#8b93a7; --accent:#38bdf8; --green:#4ade80;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--text);
+       font:13px/1.45 "Segoe UI","Microsoft YaHei",sans-serif;
+       display:flex;flex-direction:column}
+  .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+           padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--border)}
+  .brand{font-weight:700;font-size:15px;color:#fff;margin-right:6px}
+  .toolbar select,.toolbar input,.toolbar button{
+    background:var(--panel2);color:var(--text);border:1px solid var(--border);
+    border-radius:6px;padding:6px 9px;font-size:12px}
+  .toolbar button{cursor:pointer}
+  .toolbar button:hover{border-color:var(--accent)}
+  .toolbar button:disabled{opacity:.45;cursor:not-allowed}
+  .toolbar input{min-width:150px}
+  .toolbar input#bpfFilter{min-width:220px}
+  .autoscroll{color:var(--muted);display:flex;align-items:center;gap:4px}
+  .statusbar{display:flex;justify-content:space-between;padding:5px 12px;
+             background:#12161f;border-bottom:1px solid var(--border);
+             color:var(--muted);font-size:12px}
+  main.grid{flex:1;display:grid;grid-template-rows:52% 28% 20%;min-height:0}
+  .pane{border-bottom:1px solid var(--border);overflow:auto;background:var(--bg)}
+  .list-pane{padding:0}
+  table.pkt-table{width:100%;border-collapse:collapse;font-size:12px}
+  table.pkt-table th{position:sticky;top:0;background:var(--panel);z-index:2;
+    text-align:left;padding:6px 8px;color:var(--muted);font-weight:600;
+    border-bottom:1px solid var(--border);white-space:nowrap}
+  table.pkt-table td{padding:3px 8px;border-bottom:1px solid #1a2030;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px}
+  table.pkt-table td.info{max-width:520px}
+  table.pkt-table tbody tr{cursor:pointer}
+  table.pkt-table tbody tr:hover{background:#1a2130}
+  table.pkt-table tbody tr.sel{background:#17263a}
+  .badge{padding:1px 6px;border-radius:10px;font-size:11px;font-weight:600}
+  .detail-pane{padding:10px 12px;background:var(--panel)}
+  .detail-meta{margin-bottom:8px;color:var(--muted)}
+  details{margin:4px 0;border-left:2px solid var(--accent);padding-left:8px}
+  details>summary{cursor:pointer;color:#fff;font-weight:600}
+  .field-table{margin:4px 0 6px}
+  .field-row{display:flex;gap:12px;padding:1px 0}
+  .field-row .k{color:var(--muted);min-width:150px}
+  .field-row .v{color:var(--text);word-break:break-all;white-space:pre-wrap}
+  .hex-pane{padding:8px 12px;background:var(--panel);font-family:Consolas,monospace;
+            font-size:12px;overflow:auto}
+  .hex-line{white-space:pre}
+  .hex-line .off{color:var(--muted);margin-right:14px}
+  .hex-line .hx{color:#9ad0ff}
+  .hex-line .asc{color:#7dd3a8;margin-left:14px}
+  .trunc{color:#f59e0b;margin-top:6px}
+  .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);
+         align-items:center;justify-content:center;z-index:50}
+  .modal-box{width:min(900px,92vw);max-height:85vh;background:var(--panel);
+             border:1px solid var(--border);border-radius:10px;display:flex;
+             flex-direction:column}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;
+              padding:10px 14px;border-bottom:1px solid var(--border);
+              font-weight:700}
+  .modal-head button{background:none;border:none;color:var(--muted);cursor:pointer;
+                     font-size:16px}
+  .modal-body{padding:12px 14px;overflow:auto}
+  .modal-body pre{white-space:pre-wrap;word-break:break-all;background:var(--panel2);
+                  padding:10px;border-radius:6px;font-family:Consolas,monospace;
+                  font-size:12px;max-height:300px;overflow:auto}
+  .flow-label{color:#fff;margin-bottom:8px;font-weight:600}
+  .flow-dir{color:var(--accent);margin:10px 0 4px;font-weight:600}
+  table.proc-table{width:100%;border-collapse:collapse}
+  table.proc-table th,table.proc-table td{padding:5px 8px;text-align:left;
+    border-bottom:1px solid var(--border)}
+</style>
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand">🔍 网络嗅探器</div>
+    <select id="device" title="选择网卡"></select>
+    <button id="startBtn" onclick="startCapture()">▶ 开始</button>
+    <button id="stopBtn" onclick="stopCapture()" disabled>■ 停止</button>
+    <input id="bpfFilter" placeholder="BPF 抓包过滤，如 tcp port 80（启动时生效）">
+    <input id="displayFilter" placeholder="显示过滤（客户端）" oninput="applyDisplayFilter()">
+    <button onclick="savePcap()">💾 导出 pcap</button>
+    <button onclick="showProcesses()">🧩 进程</button>
+    <button id="followBtn" onclick="followStream()" disabled>📄 Follow Stream</button>
+    <label class="autoscroll"><input type="checkbox" id="autoscroll" checked
+      onchange="autoscroll=this.checked">自动滚动</label>
+  </header>
+  <div class="statusbar">
+    <span id="status">初始化…</span>
+    <span>包数：<b id="count">0</b></span>
+  </div>
+  <main class="grid">
+    <section class="pane list-pane">
+      <table class="pkt-table">
+        <thead><tr>
+          <th>No.</th><th>时间(s)</th><th>源</th><th>目的</th>
+          <th>协议</th><th>长度</th><th>信息</th>
+        </tr></thead>
+        <tbody id="packetBody"></tbody>
+      </table>
+    </section>
+    <section class="pane detail-pane"><div id="detail"></div></section>
+    <section class="pane hex-pane"><div id="hex"></div></section>
+  </main>
+
+  <div class="modal" id="modal">
+    <div class="modal-box">
+      <div class="modal-head"><span id="modalTitle"></span>
+        <button onclick="closeModal()">✕</button></div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+<script>
+let ws = null, packets = [], firstTs = null, selected = null, autoscroll = true;
+let displayFilter = "";
+
+const protoColors = {HTTP:"#4ade80", TLS:"#f59e0b", TCP:"#38bdf8", UDP:"#a78bfa",
+  ICMP:"#f472b6", ICMPv6:"#f472b6", DNS:"#fbbf24", ARP:"#94a3b8",
+  IPv6:"#94a3b8", "IPv4":"#94a3b8"};
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function setStatus(s){document.getElementById("status").textContent=s;}
+function hex8(n){return n.toString(16).padStart(4,"0");}
+
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  if(!r.ok){const j=await r.json().catch(()=>({})); throw new Error(j.error||r.statusText);}
+  return r.json();
+}
+
+async function loadDevices(){
+  try{
+    const {devices}=await api("/devices");
+    const sel=document.getElementById("device"); sel.innerHTML="";
+    devices.forEach(d=>{
+      const o=document.createElement("option"); o.value=d.name;
+      o.textContent=d.name+(d.description?" — "+d.description:"");
+      sel.appendChild(o);
+    });
+    setStatus("已加载网卡，选择后点「开始」");
+  }catch(e){setStatus("加载网卡失败："+e.message);}
+}
+
+function connectWS(){
+  const proto=location.protocol==="https:"?"wss://":"ws://";
+  ws=new WebSocket(proto+location.host+"/ws");
+  ws.onopen=()=>setStatus("WebSocket 已连接");
+  ws.onclose=()=>setStatus("WebSocket 断开");
+  ws.onerror=()=>setStatus("WebSocket 错误");
+  ws.onmessage=(ev)=>onPacket(JSON.parse(ev.data));
+}
+
+async function startCapture(){
+  const device=document.getElementById("device").value;
+  const filter=document.getElementById("bpfFilter").value.trim();
+  try{
+    await api("/start",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({device,filter})});
+    firstTs=null; packets=[]; document.getElementById("packetBody").innerHTML="";
+    setStatus("抓包中… device="+device+(filter?" filter="+filter:""));
+    document.getElementById("startBtn").disabled=true;
+    document.getElementById("stopBtn").disabled=false;
+  }catch(e){alert("启动失败："+e.message);}
+}
+
+async function stopCapture(){
+  try{await api("/stop",{method:"POST"});}catch(e){}
+  setStatus("已停止");
+  document.getElementById("startBtn").disabled=false;
+  document.getElementById("stopBtn").disabled=true;
+}
+
+function fmtTime(ts){if(firstTs===null)firstTs=ts;return (ts-firstTs).toFixed(6);}
+
+function addRow(p){
+  const tbody=document.getElementById("packetBody");
+  const tr=document.createElement("tr"); tr.dataset.no=p.no;
+  const color=protoColors[p.proto]||"#94a3b8";
+  tr.innerHTML=`<td>${p.no}</td><td>${fmtTime(p.ts)}</td>`
+    +`<td>${esc(p.src)}</td><td>${esc(p.dst)}</td>`
+    +`<td><span class="badge" style="background:${color}22;color:${color}">${esc(p.proto)}</span></td>`
+    +`<td>${p.len}</td><td class="info">${esc(p.summary)}</td>`;
+  tbody.appendChild(tr);
+  if(autoscroll){document.querySelector(".list-pane").scrollTop=1e9;}
+}
+
+function onPacket(p){
+  if(firstTs===null)firstTs=p.ts;
+  packets.push(p);
+  if(packets.length>5000)packets.shift();
+  document.getElementById("count").textContent=packets.length;
+  if(matchFilter(p))addRow(p);
+}
+
+function matchFilter(p){
+  if(!displayFilter)return true;
+  const s=(p.proto+" "+p.src+" "+p.dst+" "+p.summary).toLowerCase();
+  return s.includes(displayFilter);
+}
+
+function applyDisplayFilter(){
+  displayFilter=document.getElementById("displayFilter").value.trim().toLowerCase();
+  const tbody=document.getElementById("packetBody"); tbody.innerHTML="";
+  packets.forEach(p=>{if(matchFilter(p))addRow(p);});
+}
+
+document.getElementById("packetBody").addEventListener("click",e=>{
+  const tr=e.target.closest("tr[data-no]");
+  if(tr)selectPacket(Number(tr.dataset.no));
+});
+
+function selectPacket(no){
+  const p=packets.find(x=>x.no===no); if(!p)return;
+  selected=p;
+  document.querySelectorAll("#packetBody tr").forEach(r=>
+    r.classList.toggle("sel",Number(r.dataset.no)===no));
+  renderDetail(p); renderHex(p);
+  document.getElementById("followBtn").disabled=!p.flowkey;
+}
+
+function renderDetail(p){
+  const el=document.getElementById("detail"); el.innerHTML="";
+  const meta=document.createElement("div"); meta.className="detail-meta";
+  meta.innerHTML=`<b>No.${p.no}</b> <span class="badge" style="color:${protoColors[p.proto]||'#94a3b8'}">${esc(p.proto)}</span>`
+    +`&nbsp; 长度=${p.len} &nbsp; ${esc(p.src)} → ${esc(p.dst)}`;
+  el.appendChild(meta);
+  p.layers.forEach(layer=>{
+    const d=document.createElement("details"); d.open=true;
+    const s=document.createElement("summary"); s.textContent=layer.name; d.appendChild(s);
+    const tbl=document.createElement("div"); tbl.className="field-table";
+    for(const [k,v] of Object.entries(layer.fields)){
+      const row=document.createElement("div"); row.className="field-row";
+      row.innerHTML=`<span class="k">${esc(k)}</span><span class="v">${esc(v)}</span>`;
+      tbl.appendChild(row);
+    }
+    d.appendChild(tbl); el.appendChild(d);
+  });
+}
+
+function renderHex(p){
+  const el=document.getElementById("hex");
+  const hex=p.raw_hex||""; let html=""; const B=16;
+  for(let i=0;i<hex.length;i+=B*2){
+    const offset=i/2, line=hex.slice(i,i+B*2);
+    let hx="",asc="";
+    for(let j=0;j<line.length;j+=2){
+      const b=parseInt(line.slice(j,j+2),16);
+      hx+=line.slice(j,j+2)+" ";
+      asc+=(b>=32&&b<127)?String.fromCharCode(b):".";
+    }
+    html+=`<div class="hex-line"><span class="off">${hex8(offset)}</span>`
+      +`<span class="hx">${hx}</span><span class="asc">${asc}</span></div>`;
+  }
+  if(p.raw_truncated)html+=`<div class="trunc">…（已截断，仅显示前 ${hex.length/2} 字节）</div>`;
+  el.innerHTML=html||'<span style="color:var(--muted)">点击上方数据包查看原始字节</span>';
+}
+
+async function followStream(){
+  if(!selected||!selected.flowkey)return;
+  try{
+    const r=await api("/follow/"+encodeURIComponent(selected.flowkey));
+    let html=`<div class="flow-label">${esc(r.label)} &nbsp;（${r.packets} 个包）</div>`;
+    r.directions.forEach(d=>{
+      html+=`<div class="flow-dir">${esc(d.direction)}</div><pre>${esc(d.text)}</pre>`;
+    });
+    openModal("Follow TCP Stream",html);
+  }catch(e){alert("Follow 失败："+e.message);}
+}
+
+async function showProcesses(){
+  try{
+    const r=await api("/processes");
+    let html='<table class="proc-table"><tr><th>进程</th><th>PID</th><th>IP:端口</th></tr>';
+    r.connections.forEach(c=>{
+      html+=`<tr><td>${esc(c.name)}</td><td>${c.pid}</td><td>${esc(c.ip)}:${c.port}</td></tr>`;
+    });
+    html+="</table>";
+    openModal("进程 → 连接映射（本机）",html);
+  }catch(e){alert("获取进程信息失败："+e.message);}
+}
+
+async function savePcap(){
+  const path=prompt("保存到服务器的哪个路径？","/tmp/sniffer_capture.pcap");
+  if(!path)return;
+  try{
+    const r=await api("/save",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({path})});
+    alert("已保存到服务器："+r.path+"\n可用 scp 取回本机。");
+  }catch(e){alert("保存失败："+e.message);}
+}
+
+function openModal(title,html){
+  document.getElementById("modalTitle").textContent=title;
+  document.getElementById("modalBody").innerHTML=html;
+  document.getElementById("modal").style.display="flex";
+}
+function closeModal(){document.getElementById("modal").style.display="none";}
+
+window.addEventListener("load",()=>{loadDevices();connectWS();});
+</script>
+</body>
+</html>

@@ -270,6 +270,7 @@ def _handle_transport(layer, rest, ports, layers, pkt, is_tcp):
     layers.append(layer)
     sport, dport = ports
     pkt["sport"], pkt["dport"] = sport, dport
+    pkt["transport"] = "TCP" if is_tcp else "UDP"
     pkt["src"] = f"{pkt['src_ip']}:{sport}"
     pkt["dst"] = f"{pkt['dst_ip']}:{dport}"
     pkt["payload"] = rest
@@ -280,6 +281,7 @@ def _handle_transport(layer, rest, ports, layers, pkt, is_tcp):
         pkt["proto"] = "TCP"
         pkt["seq"] = layer["fields"]["Sequence Number"]
         pkt["ack"] = layer["fields"]["Acknowledgment"]
+        pkt["flags"] = layer["fields"].get("Flags", "")
         app, app_layer = _detect_app(sport, dport, rest)
         if app_layer:
             layers.append(app_layer)
@@ -326,6 +328,7 @@ def _parse_ip(data, layers, pkt, v6):
             if l2:
                 layers.append(l2)
                 pkt["proto"] = "ICMPv6"
+                pkt["transport"] = "ICMPv6"
                 pkt["summary"] = f"ICMPv6 {l2['fields'].get('Type')}"
         else:
             pkt["proto"] = "IPv6"
@@ -351,6 +354,7 @@ def _parse_ip(data, layers, pkt, v6):
             if l2:
                 layers.append(l2)
                 pkt["proto"] = "ICMP"
+                pkt["transport"] = "ICMP"
                 pkt["summary"] = f"ICMP {l2['fields'].get('Type')}"
         else:
             pkt["proto"] = f"IP-{proto}"
@@ -366,6 +370,8 @@ def parse(raw, ts, linktype=DLT_EN10MB, no=0, length=None):
         "sport": None, "dport": None,
         "src_ip": "", "dst_ip": "",
         "seq": None, "ack": None,
+        "transport": "",
+        "flags": "",
         "flowkey": None, "flowlabel": "",
         "summary": "", "payload": b"", "raw": raw,
         "layers": [],

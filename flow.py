@@ -1,5 +1,5 @@
 """
-flow.py —— TCP 流追踪(Follow TCP Stream) + 进程→连接映射(Linux /proc)
+flow.py —— TCP 流追踪(Follow TCP Stream + 流时序) + 进程→连接映射(Linux /proc)
 """
 import os
 import re
@@ -7,7 +7,7 @@ import socket
 
 
 class FlowTracker:
-    """按 (IP, Port) 四元组(双向归一化) 聚合 TCP 流，支持按 seq 重组"""
+    """按 (IP, Port) 四元组(双向归一化) 聚合 TCP 流，支持 seq 重组 + 时序段记录"""
     def __init__(self):
         self.flows = {}
 
@@ -25,29 +25,43 @@ class FlowTracker:
         if sport is None or dport is None:
             return
         if key not in self.flows:
-            self.flows[key] = {"label": pkt.get("flowlabel", key), "n": 0, "dirs": {}}
+            self.flows[key] = {
+                "label": pkt.get("flowlabel", key), "n": 0,
+                "a": (pkt.get("src_ip", ""), sport),
+                "b": (pkt.get("dst_ip", ""), dport),
+                "dirs": {},
+            }
         flow = self.flows[key]
         flow["n"] += 1
-
         direction = (pkt.get("src_ip", ""), sport, pkt.get("dst_ip", ""), dport)
-        seq = pkt.get("seq")
-        payload = pkt.get("payload") or b""
         d = flow["dirs"].setdefault(direction, {"segments": []})
-        if seq is not None and payload:
-            d["segments"].append((seq, payload))
+        d["segments"].append({
+            "seq": pkt.get("seq"),
+            "ack": pkt.get("ack"),
+            "flags": pkt.get("flags", ""),
+            "payload": pkt.get("payload") or b"",
+            "ts": pkt.get("ts", 0),
+        })
 
     def follow(self, key):
-        """返回按 seq 重组的双向流内容"""
+        """返回重组后的双向流内容 + 时序段列表"""
         flow = self.flows.get(key)
         if not flow:
             return None
-        out = []
+        A, B = flow["a"], flow["b"]
+        out_dirs = []
+        segments = []
         for direction, d in flow["dirs"].items():
-            src_ip, src_port, dst_ip, dst_port = direction
-            segs = sorted(d["segments"])
+            sip, sport, dip, dport = direction
+            # ---- 按 seq 重组（去重传/重叠） ----
+            ordered = sorted([s for s in d["segments"] if s["seq"] is not None],
+                             key=lambda s: s["seq"])
             reassembled = bytearray()
             expected = None
-            for seq, payload in segs:
+            for s in ordered:
+                seq, payload = s["seq"], s["payload"]
+                if not payload:
+                    continue
                 if expected is None:
                     reassembled.extend(payload)
                     expected = seq + len(payload)
@@ -63,9 +77,22 @@ class FlowTracker:
                     reassembled.extend(b"\n[...gap...]\n")
                     reassembled.extend(payload)
                     expected = seq + len(payload)
-            out.append({"direction": f"{src_ip}:{src_port} → {dst_ip}:{dst_port}",
-                        "bytes": bytes(reassembled)})
-        return {"label": flow["label"], "packets": flow["n"], "directions": out}
+            out_dirs.append({"direction": f"{sip}:{sport} → {dip}:{dport}",
+                             "bytes": bytes(reassembled)})
+            # ---- 时序段 ----
+            forward = (sip, sport) == A and (dip, dport) == B
+            for s in d["segments"]:
+                segments.append({
+                    "forward": forward,
+                    "ts": s["ts"],
+                    "seq": s["seq"],
+                    "ack": s["ack"],
+                    "flags": s["flags"],
+                    "len": len(s["payload"]),
+                })
+        segments.sort(key=lambda s: s["ts"])
+        return {"label": flow["label"], "packets": flow["n"],
+                "directions": out_dirs, "segments": segments}
 
 
 # ---------- 进程 → 连接映射（Linux） ----------

@@ -1,3 +1,1 @@
-fastapi>=0.110
-uvicorn[standard]>=0.29
-websockets>=12.0
+# 本项目使用纯 Python 标准库实现，无需任何第三方依赖，无需 pip install

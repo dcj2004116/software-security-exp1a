@@ -1,8 +1,11 @@
 # 实验 1A：带 Web 界面的网络嗅探器
 
-基于 **libpcap + FastAPI + WebSocket + 网页前端** 实现的网络嗅探器（NPS + NPA + 流追踪）。
+基于 **libpcap + Python 标准库 + 网页前端** 实现的网络嗅探器（NPS + NPA + 流追踪）。
 
-> 说明：此 README 供自己参考，提交时**不需要**（作业要求"无需 README，把想说的写进 report 文档，Git 链接必须写进文档"）。
+**零第三方依赖**：后端用纯标准库（`http.server` + SSE），无需 `pip install`，
+适配无外网的实验室主机。
+
+> 此 README 仅供自己参考，提交时不需要（作业要求"无需 README，把想说的写进 report 文档，Git 链接必须写进文档"）。
 
 ## 功能
 
@@ -16,22 +19,14 @@
 
 ## 环境要求（Linux）
 
-- Python 3.10+
-- `libpcap-dev`（`sudo apt install libpcap-dev`）
-- 抓包权限：root 或 CAP_NET_RAW（`run.sh` 会用 `setcap` 自动处理）
+- Python 3.x（Ubuntu 自带）
+- libpcap 运行库（`ldconfig -p | grep pcap` 能看到 `libpcap.so.x` 即可，一般已装）
+- 抓包权限：root（用 sudo 运行）
 
 ## 快速开始
 
 ```bash
-cd EX1A
-pip3 install -r requirements.txt
-bash run.sh            # 自动 setcap + 启动
-```
-
-或手动（若 setcap 失败，如家目录是 NFS）：
-
-```bash
-sudo python3 -m uvicorn app:app --host 0.0.0.0 --port 8000
+sudo python3 app.py
 ```
 
 然后本机浏览器（VS Code 端口转发后）打开 http://localhost:8000
@@ -49,12 +44,12 @@ python3 traffic.py
 
 ```
 EX1A/
-├── app.py          # FastAPI + WebSocket
+├── app.py          # 纯标准库 HTTP 后端 + SSE 推送
 ├── capture.py      # libpcap ctypes 封装
 ├── parser.py       # 协议解析
 ├── flow.py         # 流追踪 + 进程映射
 ├── traffic.py      # 测试流量生成
-├── run.sh          # 一键启动
+├── run.sh          # 一键启动（sudo）
 ├── static/index.html  # 前端
-└── requirements.txt
+└── requirements.txt   # （空，无第三方依赖）
 ```

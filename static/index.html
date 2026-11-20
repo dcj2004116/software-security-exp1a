@@ -74,6 +74,7 @@
                   font-size:12px;max-height:300px;overflow:auto}
   .flow-label{color:#fff;margin-bottom:8px;font-weight:600}
   .flow-dir{color:var(--accent);margin:10px 0 4px;font-weight:600}
+  .modal-body h4{margin:12px 0 6px;color:#fff;font-size:13px}
   table.proc-table{width:100%;border-collapse:collapse}
   table.proc-table th,table.proc-table td{padding:5px 8px;text-align:left;
     border-bottom:1px solid var(--border)}
@@ -89,6 +90,7 @@
     <input id="displayFilter" placeholder="显示过滤（客户端）" oninput="applyDisplayFilter()">
     <button onclick="savePcap()">💾 导出 pcap</button>
     <button onclick="showProcesses()">🧩 进程</button>
+    <button onclick="showStats()">📊 统计</button>
     <button id="followBtn" onclick="followStream()" disabled>📄 Follow Stream</button>
     <label class="autoscroll"><input type="checkbox" id="autoscroll" checked
       onchange="autoscroll=this.checked">自动滚动</label>
@@ -120,7 +122,7 @@
   </div>
 
 <script>
-let ws = null, packets = [], firstTs = null, selected = null, autoscroll = true;
+let es = null, packets = [], firstTs = null, selected = null, autoscroll = true;
 let displayFilter = "";
 
 const protoColors = {HTTP:"#4ade80", TLS:"#f59e0b", TCP:"#38bdf8", UDP:"#a78bfa",
@@ -150,13 +152,11 @@ async function loadDevices(){
   }catch(e){setStatus("加载网卡失败："+e.message);}
 }
 
-function connectWS(){
-  const proto=location.protocol==="https:"?"wss://":"ws://";
-  ws=new WebSocket(proto+location.host+"/ws");
-  ws.onopen=()=>setStatus("WebSocket 已连接");
-  ws.onclose=()=>setStatus("WebSocket 断开");
-  ws.onerror=()=>setStatus("WebSocket 错误");
-  ws.onmessage=(ev)=>onPacket(JSON.parse(ev.data));
+function connectStream(){
+  es=new EventSource("/stream");
+  es.onopen=()=>setStatus("已连接，选择网卡后点「开始」");
+  es.onerror=()=>setStatus("连接中断，自动重连中…");
+  es.onmessage=(ev)=>onPacket(JSON.parse(ev.data));
 }
 
 async function startCapture(){
@@ -269,6 +269,15 @@ async function followStream(){
   try{
     const r=await api("/follow/"+encodeURIComponent(selected.flowkey));
     let html=`<div class="flow-label">${esc(r.label)} &nbsp;（${r.packets} 个包）</div>`;
+    if(r.segments&&r.segments.length){
+      const t0=r.segments[0].ts;
+      html+=`<h4>流时序图</h4><table class="proc-table"><tr><th>时间(s)</th><th>方向</th><th>标志</th><th>Seq</th><th>Ack</th><th>Len</th></tr>`;
+      r.segments.slice(0,300).forEach(s=>{
+        html+=`<tr><td>${(s.ts-t0).toFixed(6)}</td><td>${s.forward?"→":"←"}</td>`
+          +`<td>${esc(s.flags||"")}</td><td>${s.seq??""}</td><td>${s.ack??""}</td><td>${s.len}</td></tr>`;
+      });
+      html+=`</table>`;
+    }
     r.directions.forEach(d=>{
       html+=`<div class="flow-dir">${esc(d.direction)}</div><pre>${esc(d.text)}</pre>`;
     });
@@ -288,6 +297,30 @@ async function showProcesses(){
   }catch(e){alert("获取进程信息失败："+e.message);}
 }
 
+function showStats(){
+  const byProto={}, bySrc={}, byDst={};
+  let totalBytes=0;
+  const n=packets.length;
+  packets.forEach(p=>{
+    byProto[p.proto]=(byProto[p.proto]||0)+1;
+    totalBytes+=p.len||0;
+    if(p.src)bySrc[p.src]=(bySrc[p.src]||0)+1;
+    if(p.dst)byDst[p.dst]=(byDst[p.dst]||0)+1;
+  });
+  const top=(o,c)=>Object.entries(o).sort((a,b)=>b[1]-a[1]).slice(0,c);
+  let html=`<div>总包数：<b>${n}</b>　总字节：<b>${totalBytes}</b></div>`;
+  html+=`<h4>协议分布</h4><table class="proc-table"><tr><th>协议</th><th>数量</th><th>占比</th></tr>`;
+  top(byProto,10).forEach(([k,v])=>{
+    html+=`<tr><td>${esc(k)}</td><td>${v}</td><td>${n?(100*v/n).toFixed(1):"0"}%</td></tr>`;
+  });
+  html+=`</table><h4>Top 源端点</h4><table class="proc-table"><tr><th>端点</th><th>包数</th></tr>`;
+  top(bySrc,10).forEach(([k,v])=>{html+=`<tr><td>${esc(k)}</td><td>${v}</td></tr>`;});
+  html+=`</table><h4>Top 目的端点</h4><table class="proc-table"><tr><th>端点</th><th>包数</th></tr>`;
+  top(byDst,10).forEach(([k,v])=>{html+=`<tr><td>${esc(k)}</td><td>${v}</td></tr>`;});
+  html+=`</table>`;
+  openModal("协议统计",html);
+}
+
 async function savePcap(){
   const path=prompt("保存到服务器的哪个路径？","/tmp/sniffer_capture.pcap");
   if(!path)return;
@@ -305,7 +338,7 @@ function openModal(title,html){
 }
 function closeModal(){document.getElementById("modal").style.display="none";}
 
-window.addEventListener("load",()=>{loadDevices();connectWS();});
+window.addEventListener("load",()=>{loadDevices();connectStream();});
 </script>
 </body>
 </html>

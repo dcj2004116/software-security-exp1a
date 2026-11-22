@@ -3,151 +3,259 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>网络嗅探器 · Sniffer (Exp 1A)</title>
+<title>网络嗅探器 · Sniffer v4</title>
 <style>
   :root{
-    --bg:#0f1117; --panel:#161a23; --panel2:#1c2230; --border:#2a3142;
-    --text:#d7dce6; --muted:#8b93a7; --accent:#38bdf8; --green:#4ade80;
+    --bg:#1a1d24; --panel:#21252e; --panel2:#292e3a; --border:#343b49;
+    --text:#d8dce4; --muted:#8b93a3; --accent:#c9a05c; --accent-dim:#c9a05c22;
+    --mono:Consolas,"Cascadia Mono",ui-monospace,monospace;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{background:var(--bg);color:var(--text);
-       font:13px/1.45 "Segoe UI","Microsoft YaHei",sans-serif;
-       display:flex;flex-direction:column}
-  .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-           padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--border)}
-  .brand{font-weight:700;font-size:15px;color:#fff;margin-right:6px}
-  .toolbar select,.toolbar input,.toolbar button{
-    background:var(--panel2);color:var(--text);border:1px solid var(--border);
-    border-radius:6px;padding:6px 9px;font-size:12px}
-  .toolbar button{cursor:pointer}
-  .toolbar button:hover{border-color:var(--accent)}
-  .toolbar button:disabled{opacity:.45;cursor:not-allowed}
-  .toolbar input{min-width:150px}
-  .toolbar input#bpfFilter{min-width:220px}
-  .autoscroll{color:var(--muted);display:flex;align-items:center;gap:4px}
-  .statusbar{display:flex;justify-content:space-between;padding:5px 12px;
-             background:#12161f;border-bottom:1px solid var(--border);
-             color:var(--muted);font-size:12px}
-  main.grid{flex:1;display:grid;grid-template-rows:52% 28% 20%;min-height:0}
-  .pane{border-bottom:1px solid var(--border);overflow:auto;background:var(--bg)}
-  .list-pane{padding:0}
+       font:13px/1.55 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+       display:flex;flex-direction:column;overflow:hidden}
+  /* 顶栏 */
+  .topbar{display:flex;align-items:center;gap:12px;padding:9px 16px;
+          background:linear-gradient(180deg,#232733,#1f232c);
+          border-bottom:1px solid var(--border);flex-wrap:wrap;
+          box-shadow:0 1px 8px rgba(0,0,0,.25)}
+  .title{font-size:14px;font-weight:650;color:#eef0f5;letter-spacing:.3px;white-space:nowrap}
+  .title small{color:var(--muted);font-weight:400;font-size:11px;margin-left:7px;letter-spacing:.5px}
+  .sep{width:1px;height:22px;background:var(--border)}
+  .field{display:flex;align-items:center;gap:6px}
+  .field label{color:var(--muted);font-size:12px;white-space:nowrap}
+  select,input[type=text],button{background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12.5px;font-family:inherit;
+    transition:border-color .15s,background .15s}
+  select:focus,input:focus{outline:none;border-color:var(--accent)}
+  button{cursor:pointer;white-space:nowrap}
+  button:hover{border-color:var(--accent);color:#fff}
+  button:disabled{opacity:.38;cursor:not-allowed}
+  button.primary{background:linear-gradient(180deg,#d6ae64,#c09448);color:#1b1d23;border-color:#a8833c;font-weight:600}
+  button.primary:hover{opacity:.88;color:#1b1d23}
+  button.primary:disabled{opacity:.38}
+  input[type=text]{min-width:130px}
+  input[type=text]#bpfFilter{min-width:200px}
+  input[type=text]#searchBox{min-width:150px}
+  input[type=checkbox]{accent-color:var(--accent)}
+  .autoscroll{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:12px;white-space:nowrap;cursor:pointer}
+  .clear-btn{padding:5px 8px;color:var(--muted)}
+  .clear-btn:hover{color:#fff;border-color:var(--accent)}
+  /* 状态栏 */
+  .statusbar{display:flex;align-items:center;gap:16px;padding:4px 16px;
+             background:#171a21;border-bottom:1px solid var(--border);color:var(--muted);font-size:12px}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#555;margin-right:6px;transition:background .2s}
+  .dot.on{background:#58a26f;box-shadow:0 0 5px #58a26f88}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .drop-warn{color:#c96f6f}
+  /* 三栏：可拖拽，header 固定，body 独立滚动 */
+  main.grid{flex:1;display:flex;flex-direction:column;min-height:0}
+  .pane{display:flex;flex-direction:column;overflow:hidden;min-height:70px;
+        border-bottom:1px solid var(--border);background:var(--bg)}
+  #listPane{flex:56 1 0}
+  #detailPane{flex:26 1 0}
+  #hexPane{flex:18 1 0}
+  .divider{flex:0 0 5px;cursor:row-resize;background:transparent;position:relative;transition:background .15s}
+  .divider:hover,.divider.dragging{background:var(--accent-dim)}
+  .divider::after{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:30px;height:2px;border-radius:1px;background:#39404f}
+  .divider:hover::after{background:var(--accent)}
+  .pane-head{flex:0 0 auto;padding:5px 14px;font-size:11px;color:var(--muted);
+             background:linear-gradient(180deg,#262b36,#21252e);border-bottom:1px solid var(--border);letter-spacing:.5px;user-select:none;
+             display:flex;justify-content:space-between;align-items:center}
+  .pane-body{flex:1 1 auto;overflow:auto;min-height:0}
+  /* 列表 */
   table.pkt-table{width:100%;border-collapse:collapse;font-size:12px}
-  table.pkt-table th{position:sticky;top:0;background:var(--panel);z-index:2;
-    text-align:left;padding:6px 8px;color:var(--muted);font-weight:600;
-    border-bottom:1px solid var(--border);white-space:nowrap}
-  table.pkt-table td{padding:3px 8px;border-bottom:1px solid #1a2030;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px}
+  table.pkt-table th{position:sticky;top:0;background:var(--panel);z-index:2;text-align:left;
+    padding:5px 12px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap;font-size:11px;
+    text-transform:uppercase;letter-spacing:.4px}
+  table.pkt-table td{padding:3px 12px;border-bottom:1px solid #1e232c;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;max-width:300px;font-variant-numeric:tabular-nums}
   table.pkt-table td.info{max-width:520px}
-  table.pkt-table tbody tr{cursor:pointer}
-  table.pkt-table tbody tr:hover{background:#1a2130}
-  table.pkt-table tbody tr.sel{background:#17263a}
-  .badge{padding:1px 6px;border-radius:10px;font-size:11px;font-weight:600}
-  .detail-pane{padding:10px 12px;background:var(--panel)}
-  .detail-meta{margin-bottom:8px;color:var(--muted)}
-  details{margin:4px 0;border-left:2px solid var(--accent);padding-left:8px}
-  details>summary{cursor:pointer;color:#fff;font-weight:600}
-  .field-table{margin:4px 0 6px}
-  .field-row{display:flex;gap:12px;padding:1px 0}
-  .field-row .k{color:var(--muted);min-width:150px}
-  .field-row .v{color:var(--text);word-break:break-all;white-space:pre-wrap}
-  .hex-pane{padding:8px 12px;background:var(--panel);font-family:Consolas,monospace;
-            font-size:12px;overflow:auto}
-  .hex-line{white-space:pre}
-  .hex-line .off{color:var(--muted);margin-right:14px}
-  .hex-line .hx{color:#9ad0ff}
-  .hex-line .asc{color:#7dd3a8;margin-left:14px}
-  .trunc{color:#f59e0b;margin-top:6px}
-  .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);
+  table.pkt-table tbody tr{cursor:pointer;transition:background .08s}
+  table.pkt-table tbody tr:hover{background:#242a35}
+  table.pkt-table tbody tr.sel{background:#2d3545}
+  table.pkt-table tbody tr:nth-child(even):not(.sel):not(:hover){background:#1b1f27}
+  .proto-tag{display:inline-block;min-width:36px;text-align:center;padding:0 6px;border-radius:3px;
+    font-size:11px;font-weight:600;font-family:var(--mono)}
+  /* 详情 */
+  .detail-pane .pane-body{padding:8px 14px;background:var(--panel)}
+  .detail-meta{margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border);color:var(--muted);font-size:12.5px}
+  details{margin:4px 0;border-left:2px solid var(--accent);padding-left:10px}
+  details>summary{cursor:pointer;color:#eceef3;font-weight:600;font-size:12.5px;list-style:none;user-select:none}
+  details>summary::before{content:"▸";color:var(--muted);margin-right:5px;font-size:11px}
+  details[open]>summary::before{content:"▾"}
+  .field-table{margin:3px 0 7px 16px}
+  .field-row{display:flex;gap:14px;padding:1px 0}
+  .field-row .k{color:var(--muted);min-width:160px;font-size:12px}
+  .field-row .v{color:var(--text);word-break:break-all;white-space:pre-wrap;
+    font-family:var(--mono);font-size:12px}
+  /* 十六进制 */
+  .hex-pane .pane-body{padding:8px 14px;background:var(--panel);font-family:var(--mono);font-size:12px}
+  .hex-line{white-space:pre;line-height:1.5}
+  .hex-line .off{color:var(--muted);margin-right:16px;display:inline-block;min-width:38px}
+  .hex-line .hx{color:#9db8d4}
+  .hex-line .asc{color:#8fb89a;margin-left:16px}
+  .hex-head{color:var(--muted);margin-bottom:3px;padding-bottom:3px;border-bottom:1px solid var(--border)}
+  .trunc{color:var(--accent);margin-top:6px}
+  .placeholder{color:var(--muted)}
+  /* 弹窗 */
+  .modal{display:none;position:fixed;inset:0;background:rgba(10,12,16,.6);
          align-items:center;justify-content:center;z-index:50}
-  .modal-box{width:min(900px,92vw);max-height:85vh;background:var(--panel);
-             border:1px solid var(--border);border-radius:10px;display:flex;
-             flex-direction:column}
+  .modal-box{width:min(960px,92vw);max-height:85vh;background:var(--panel);
+             border:1px solid var(--border);border-radius:9px;display:flex;flex-direction:column;
+             box-shadow:0 14px 40px rgba(0,0,0,.5)}
   .modal-head{display:flex;justify-content:space-between;align-items:center;
-              padding:10px 14px;border-bottom:1px solid var(--border);
-              font-weight:700}
-  .modal-head button{background:none;border:none;color:var(--muted);cursor:pointer;
-                     font-size:16px}
-  .modal-body{padding:12px 14px;overflow:auto}
+              padding:11px 16px;border-bottom:1px solid var(--border);font-weight:600}
+  .modal-head button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px}
+  .modal-head button:hover{color:#fff}
+  .modal-body{padding:14px 16px;overflow:auto}
   .modal-body pre{white-space:pre-wrap;word-break:break-all;background:var(--panel2);
-                  padding:10px;border-radius:6px;font-family:Consolas,monospace;
-                  font-size:12px;max-height:300px;overflow:auto}
-  .flow-label{color:#fff;margin-bottom:8px;font-weight:600}
-  .flow-dir{color:var(--accent);margin:10px 0 4px;font-weight:600}
-  .modal-body h4{margin:12px 0 6px;color:#fff;font-size:13px}
-  table.proc-table{width:100%;border-collapse:collapse}
-  table.proc-table th,table.proc-table td{padding:5px 8px;text-align:left;
-    border-bottom:1px solid var(--border)}
+    padding:10px;border-radius:5px;font-family:var(--mono);font-size:12px;max-height:280px;overflow:auto}
+  .flow-label{color:#eceef3;margin-bottom:8px;font-weight:600}
+  .flow-dir{color:var(--accent);margin:12px 0 4px;font-weight:600;font-size:12.5px}
+  .modal-body h4{margin:14px 0 6px;color:#eceef3;font-size:12.5px}
+  .empty-note{color:var(--muted);padding:8px 0}
+  table.proc-table{width:100%;border-collapse:collapse;font-size:12px}
+  table.proc-table th,table.proc-table td{padding:4px 10px;text-align:left;
+    border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums}
+  table.proc-table th{color:var(--muted);font-weight:600;font-size:11.5px}
+  table.proc-table tbody tr:hover{background:#242a35}
+  table.proc-table tbody tr{cursor:pointer}
+  table.proc-table td a,table.proc-table td button{color:var(--accent);background:none;border:none;padding:0;font-size:12px}
+  table.proc-table td button:hover{text-decoration:underline}
+  .stat-cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .stat-card{background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:10px 16px;min-width:120px}
+  .stat-card .num{font-size:20px;font-weight:700;color:#eceef3;font-family:var(--mono)}
+  .stat-card .lbl{font-size:11px;color:var(--muted);margin-top:2px}
+  .charts-row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+  .chart-box{flex:1 1 320px;min-width:280px}
+  /* 协议图例 */
+  .legend{display:flex;gap:10px}
+  .lg-item{display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--muted)}
+  .lg-item i{width:8px;height:8px;border-radius:2px;display:inline-block}
+  /* 滚动条 */
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#333a47;border-radius:5px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#434c5d;background-clip:content-box}
+  /* 按钮按压反馈 */
+  button:active{transform:translateY(0.5px)}
+  /* 顶部强调条 */
+  .accent-bar{flex:0 0 auto;height:2px;background:linear-gradient(90deg,#c9a05c,#c9a05c66 45%,transparent)}
+  .kbd-hint{font-size:10.5px;color:#5a6273}
 </style>
 </head>
 <body>
-  <header class="toolbar">
-    <div class="brand">🔍 网络嗅探器</div>
-    <select id="device" title="选择网卡"></select>
-    <button id="startBtn" onclick="startCapture()">▶ 开始</button>
-    <button id="stopBtn" onclick="stopCapture()" disabled>■ 停止</button>
-    <input id="bpfFilter" placeholder="BPF 抓包过滤，如 tcp port 80（启动时生效）">
-    <input id="displayFilter" placeholder="显示过滤（客户端）" oninput="applyDisplayFilter()">
-    <button onclick="savePcap()">💾 导出 pcap</button>
-    <button onclick="showProcesses()">🧩 进程</button>
-    <button onclick="showStats()">📊 统计</button>
-    <button id="followBtn" onclick="followStream()" disabled>📄 Follow Stream</button>
-    <label class="autoscroll"><input type="checkbox" id="autoscroll" checked
-      onchange="autoscroll=this.checked">自动滚动</label>
+  <div class="accent-bar"></div>
+  <header class="topbar">
+    <div class="title"><svg width="16" height="16" viewBox="0 0 16 16" style="vertical-align:-2px;margin-right:7px"><rect x="1" y="1" width="14" height="14" rx="3.5" fill="none" stroke="#c9a05c" stroke-width="1.6"/><circle cx="8" cy="8" r="3" fill="#c9a05c"/></svg>网络嗅探器<small>PACKET SNIFFER</small></div>
+    <div class="sep"></div>
+    <div class="field"><label>网卡</label><select id="device" title="选择网卡"></select></div>
+    <button id="startBtn" class="primary" onclick="startCapture()">开始</button>
+    <button id="stopBtn" onclick="stopCapture()" disabled>停止</button>
+    <div class="sep"></div>
+    <div class="field"><label>抓包过滤</label><input id="bpfFilter" type="text" placeholder="如 tcp port 8080" title="libpcap BPF 表达式"></div>
+    <div class="field"><label>显示过滤</label><select id="displayFilter" onchange="applyFilters()">
+      <option value="ALL">全部协议</option>
+      <option value="TCP">TCP</option>
+      <option value="UDP">UDP</option>
+      <option value="HTTP">HTTP</option>
+      <option value="DNS">DNS</option>
+      <option value="TLS">TLS</option>
+      <option value="ICMP">ICMP</option>
+      <option value="ARP">ARP</option>
+    </select></div>
+    <div class="field"><label>搜索</label><input id="searchBox" type="text" placeholder="IP/端口/协议/关键字" oninput="applyFilters()" title="按 IP、端口、协议、摘要关键字过滤（快捷键 / 聚焦）"></div>
+    <div class="sep"></div>
+    <button onclick="savePcap()" title="把已抓到的包保存成 pcap 文件">导出 pcap</button>
+    <button onclick="showFlows()" title="列出所有 TCP 会话流">会话</button>
+    <button onclick="showProcesses()" title="本机连接与进程的映射">进程</button>
+    <button onclick="showStats()" title="协议分布、速率曲线与流量统计">统计</button>
+    <button id="followBtn" onclick="followStream()" disabled title="查看所选 TCP 流的内容与时序">Follow Stream</button>
+    <label class="autoscroll"><input type="checkbox" id="autoscroll" checked onchange="autoscroll=this.checked">自动滚动</label>
   </header>
+
   <div class="statusbar">
-    <span id="status">初始化…</span>
-    <span>包数：<b id="count">0</b></span>
+    <span><span class="dot" id="runDot"></span><span id="status">初始化…</span></span>
+    <span>已显示 <b id="count" class="mono">0</b> 包</span>
+    <span>速率 <b id="rate" class="mono">0</b> pkt/s</span>
+    <span id="dropStat" class="drop-warn"></span>
+    <span id="devInfo" class="mono"></span>
+    <span id="filterHint" style="color:var(--accent)"></span>
+    <span class="kbd-hint" style="margin-left:auto">空格 开始/停止 · ↑↓ 切换包 · / 搜索</span>
+    <span style="background:#c9a05c;color:#1b1d23;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700">v4</span>
   </div>
-  <main class="grid">
-    <section class="pane list-pane">
-      <table class="pkt-table">
-        <thead><tr>
-          <th>No.</th><th>时间(s)</th><th>源</th><th>目的</th>
-          <th>协议</th><th>长度</th><th>信息</th>
-        </tr></thead>
-        <tbody id="packetBody"></tbody>
-      </table>
+
+  <main class="grid" id="grid">
+    <section class="pane" id="listPane">
+      <div class="pane-head"><span>数据包列表</span><span class="legend" id="legend"></span></div>
+      <div class="pane-body" id="listBody">
+        <table class="pkt-table">
+          <thead><tr><th>No.</th><th>时间(s)</th><th>源</th><th>目的</th><th>协议</th><th>长度</th><th>信息</th></tr></thead>
+          <tbody id="packetBody"></tbody>
+        </table>
+      </div>
     </section>
-    <section class="pane detail-pane"><div id="detail"></div></section>
-    <section class="pane hex-pane"><div id="hex"></div></section>
+    <div class="divider" title="拖拽调整高度"></div>
+    <section class="pane detail-pane" id="detailPane">
+      <div class="pane-head">数据包详情</div>
+      <div class="pane-body" id="detail"><div class="placeholder">点击上方数据包查看详情</div></div>
+    </section>
+    <div class="divider" title="拖拽调整高度"></div>
+    <section class="pane hex-pane" id="hexPane">
+      <div class="pane-head">原始字节</div>
+      <div class="pane-body" id="hex"><div class="placeholder">点击上方数据包查看原始字节</div></div>
+    </section>
   </main>
 
   <div class="modal" id="modal">
     <div class="modal-box">
-      <div class="modal-head"><span id="modalTitle"></span>
-        <button onclick="closeModal()">✕</button></div>
+      <div class="modal-head"><span id="modalTitle"></span><button onclick="closeModal()">✕</button></div>
       <div class="modal-body" id="modalBody"></div>
     </div>
   </div>
 
 <script>
-let es = null, packets = [], firstTs = null, selected = null, autoscroll = true;
-let displayFilter = "";
+let es=null, packets=[], packetMap=new Map(), firstTs=null, selected=null, autoscroll=true;
+let displayFilter="", searchText="";
+let pendingRows=[], flushTimer=null, rateTimes=[], selectedRow=null, running=false;
+let rateHistory=[];
+const MAX_PACKETS=5000, MAX_ROWS=600;
 
-const protoColors = {HTTP:"#4ade80", TLS:"#f59e0b", TCP:"#38bdf8", UDP:"#a78bfa",
-  ICMP:"#f472b6", ICMPv6:"#f472b6", DNS:"#fbbf24", ARP:"#94a3b8",
-  IPv6:"#94a3b8", "IPv4":"#94a3b8"};
+const protoColors={HTTP:"#58a26f",TLS:"#c96f6f",TCP:"#5b8fc9",UDP:"#9a7bc4",
+  ICMP:"#6aa7bf",ICMPv6:"#6aa7bf",DNS:"#cf8a3f",ARP:"#8893a5",IPv6:"#8893a5",
+  "IPv4":"#8893a5","IP-1":"#8893a5","IP-6":"#8893a5","IP-17":"#8893a5"};
 
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 function setStatus(s){document.getElementById("status").textContent=s;}
 function hex8(n){return n.toString(16).padStart(4,"0");}
+function fmtBytes(n){
+  if(n<1024)return n+" B";
+  if(n<1048576)return (n/1024).toFixed(1)+" KB";
+  return (n/1048576).toFixed(2)+" MB";
+}
 
-async function api(path, opts){
-  const r = await fetch(path, opts);
-  if(!r.ok){const j=await r.json().catch(()=>({})); throw new Error(j.error||r.statusText);}
+async function api(path,opts){
+  const r=await fetch(path,opts);
+  if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||r.statusText);}
   return r.json();
 }
 
 async function loadDevices(){
   try{
     const {devices}=await api("/devices");
-    const sel=document.getElementById("device"); sel.innerHTML="";
+    const sel=document.getElementById("device");sel.innerHTML="";
     devices.forEach(d=>{
-      const o=document.createElement("option"); o.value=d.name;
-      o.textContent=d.name+(d.description?" — "+d.description:"");
+      const o=document.createElement("option");o.value=d.name;
+      o.textContent=d.description||d.name;
       sel.appendChild(o);
     });
+    // 恢复上次选择（localStorage 持久化）
+    const saved=JSON.parse(localStorage.getItem("snifferPrefs")||"{}");
+    if(saved.device && [...sel.options].some(o=>o.value===saved.device)) sel.value=saved.device;
+    if(saved.filter) document.getElementById("bpfFilter").value=saved.filter;
     setStatus("已加载网卡，选择后点「开始」");
   }catch(e){setStatus("加载网卡失败："+e.message);}
 }
@@ -156,101 +264,185 @@ function connectStream(){
   es=new EventSource("/stream");
   es.onopen=()=>setStatus("已连接，选择网卡后点「开始」");
   es.onerror=()=>setStatus("连接中断，自动重连中…");
-  es.onmessage=(ev)=>onPacket(JSON.parse(ev.data));
+  es.onmessage=ev=>{try{onPacket(JSON.parse(ev.data));}catch(e){console.error("解析包失败",e);}};
 }
 
 async function startCapture(){
   const device=document.getElementById("device").value;
   const filter=document.getElementById("bpfFilter").value.trim();
+  // 持久化本次选择
+  localStorage.setItem("snifferPrefs", JSON.stringify({device, filter}));
+  // 清空前端状态
+  firstTs=null;packets=[];packetMap.clear();selected=null;selectedRow=null;
+  document.getElementById("packetBody").innerHTML="";
+  document.getElementById("count").textContent="0";
+  document.getElementById("rate").textContent="0";
+  document.getElementById("dropStat").textContent="";
+  document.getElementById("detail").innerHTML='<div class="placeholder">点击上方数据包查看详情</div>';
+  document.getElementById("hex").innerHTML='<div class="placeholder">点击上方数据包查看原始字节</div>';
+  document.getElementById("filterHint").textContent="";
   try{
     await api("/start",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({device,filter})});
-    firstTs=null; packets=[]; document.getElementById("packetBody").innerHTML="";
-    setStatus("抓包中… device="+device+(filter?" filter="+filter:""));
+    running=true;
+    document.getElementById("devInfo").textContent=device;
+    setStatus("抓包中："+(filter||"全部流量"));
     document.getElementById("startBtn").disabled=true;
     document.getElementById("stopBtn").disabled=false;
+    document.getElementById("runDot").classList.add("on");
+    pollStatus();
   }catch(e){alert("启动失败："+e.message);}
 }
 
 async function stopCapture(){
   try{await api("/stop",{method:"POST"});}catch(e){}
+  running=false;
   setStatus("已停止");
   document.getElementById("startBtn").disabled=false;
   document.getElementById("stopBtn").disabled=true;
+  document.getElementById("runDot").classList.remove("on");
+}
+
+async function pollStatus(){
+  if(!running)return;
+  try{
+    const st=await api("/status");
+    if(st.dropped!=null){
+      document.getElementById("dropStat").textContent =
+        st.dropped>0 ? `丢包 ${st.dropped}` : "";
+    }
+  }catch(e){}
+  setTimeout(pollStatus, 2000);
 }
 
 function fmtTime(ts){if(firstTs===null)firstTs=ts;return (ts-firstTs).toFixed(6);}
 
-function addRow(p){
+function buildRow(p){
+  const tr=document.createElement("tr");tr.dataset.no=p.no;
+  const c=protoColors[p.proto]||"#8893a5";
+  const tag=`<span class="proto-tag" style="background:${c}22;color:${c}">${esc(p.proto)}</span>`;
+  tr.innerHTML=`<td class="mono">${p.no}</td><td class="mono">${fmtTime(p.ts)}</td>`
+    +`<td class="mono">${esc(p.src)}</td><td class="mono">${esc(p.dst)}</td><td>${tag}</td>`
+    +`<td class="mono">${p.len}</td><td class="info">${esc(p.summary)}</td>`;
+  tr.onclick=()=>selectPacket(p.no);
+  return tr;
+}
+
+function enqueueRow(p){pendingRows.push(p);if(!flushTimer)flushTimer=setTimeout(flushRows,80);}
+
+function flushRows(){
+  flushTimer=null;
   const tbody=document.getElementById("packetBody");
-  const tr=document.createElement("tr"); tr.dataset.no=p.no;
-  const color=protoColors[p.proto]||"#94a3b8";
-  tr.innerHTML=`<td>${p.no}</td><td>${fmtTime(p.ts)}</td>`
-    +`<td>${esc(p.src)}</td><td>${esc(p.dst)}</td>`
-    +`<td><span class="badge" style="background:${color}22;color:${color}">${esc(p.proto)}</span></td>`
-    +`<td>${p.len}</td><td class="info">${esc(p.summary)}</td>`;
-  tbody.appendChild(tr);
-  if(autoscroll){document.querySelector(".list-pane").scrollTop=1e9;}
+  const body=document.getElementById("listBody");
+  const nearBottom=body.scrollHeight-body.scrollTop-body.clientHeight<80;
+  const frag=document.createDocumentFragment();
+  for(const p of pendingRows)frag.appendChild(buildRow(p));
+  pendingRows=[];
+  tbody.appendChild(frag);
+  while(tbody.childElementCount>MAX_ROWS)tbody.removeChild(tbody.firstElementChild);
+  const now=performance.now();
+  while(rateTimes.length&&now-rateTimes[0]>1000)rateTimes.shift();
+  document.getElementById("rate").textContent=rateTimes.length;
+  document.getElementById("count").textContent=packets.length;
+  if(autoscroll&&nearBottom)body.scrollTop=body.scrollHeight;
 }
 
 function onPacket(p){
   if(firstTs===null)firstTs=p.ts;
-  packets.push(p);
-  if(packets.length>5000)packets.shift();
-  document.getElementById("count").textContent=packets.length;
-  if(matchFilter(p))addRow(p);
+  packets.push(p);packetMap.set(p.no,p);
+  if(packets.length>MAX_PACKETS){const old=packets.shift();packetMap.delete(old.no);}
+  rateTimes.push(performance.now());
+  if(rateTimes.length>5000)rateTimes.shift();
+  if(matchFilter(p))enqueueRow(p);
 }
 
 function matchFilter(p){
-  if(!displayFilter)return true;
-  const s=(p.proto+" "+p.src+" "+p.dst+" "+p.summary).toLowerCase();
-  return s.includes(displayFilter);
+  const f=displayFilter;
+  if(f&&f!=="ALL"){
+    if(f==="TCP"){if(p.transport!=="TCP")return false;}
+    else if(f==="UDP"){if(p.transport!=="UDP")return false;}
+    else if(f==="ICMP"){if((p.transport||"").indexOf("ICMP")!==0)return false;}
+    else if(p.proto!==f)return false;
+  }
+  if(searchText){
+    const hay=(p.src+" "+p.dst+" "+p.proto+" "+p.summary).toLowerCase();
+    if(!hay.includes(searchText))return false;
+  }
+  return true;
 }
 
-function applyDisplayFilter(){
-  displayFilter=document.getElementById("displayFilter").value.trim().toLowerCase();
-  const tbody=document.getElementById("packetBody"); tbody.innerHTML="";
-  packets.forEach(p=>{if(matchFilter(p))addRow(p);});
+function applyFilters(){
+  displayFilter=document.getElementById("displayFilter").value;
+  searchText=document.getElementById("searchBox").value.trim().toLowerCase();
+  selected=null;selectedRow=null;
+  document.getElementById("followBtn").disabled=true;
+  document.getElementById("detail").innerHTML='<div class="placeholder">点击上方数据包查看详情</div>';
+  document.getElementById("hex").innerHTML='<div class="placeholder">点击上方数据包查看原始字节</div>';
+  const tbody=document.getElementById("packetBody");tbody.innerHTML="";
+  let shown=0;
+  packets.forEach(p=>{if(matchFilter(p)){tbody.appendChild(buildRow(p));shown++;}});
+  while(tbody.childElementCount>MAX_ROWS)tbody.removeChild(tbody.firstElementChild);
+  document.getElementById("filterHint").textContent =
+    (shown===0 && (displayFilter!=="ALL"||searchText))?"无匹配的数据包":"";
 }
 
-document.getElementById("packetBody").addEventListener("click",e=>{
-  const tr=e.target.closest("tr[data-no]");
-  if(tr)selectPacket(Number(tr.dataset.no));
-});
+function buildLegend(){
+  const order=["HTTP","TCP","UDP","DNS","TLS","ICMP","ARP"];
+  document.getElementById("legend").innerHTML=
+    order.map(k=>`<span class="lg-item"><i style="background:${protoColors[k]}"></i>${k}</span>`).join("");
+}
 
 function selectPacket(no){
-  const p=packets.find(x=>x.no===no); if(!p)return;
+  let p=packetMap.get(no);
+  if(!p){p=packets.find(x=>x.no===no);}
+  if(!p)return;
   selected=p;
-  document.querySelectorAll("#packetBody tr").forEach(r=>
-    r.classList.toggle("sel",Number(r.dataset.no)===no));
-  renderDetail(p); renderHex(p);
+  if(selectedRow)selectedRow.classList.remove("sel");
+  const tr=document.querySelector(`#packetBody tr[data-no="${no}"]`);
+  if(tr){tr.classList.add("sel");selectedRow=tr;tr.scrollIntoView({block:"nearest"});}
+  try{renderDetail(p);}catch(e){console.error("renderDetail 出错",e);}
+  try{renderHex(p);}catch(e){console.error("renderHex 出错",e);}
   document.getElementById("followBtn").disabled=!p.flowkey;
 }
 
+function selectAdjacent(dir){
+  const rows=[...document.querySelectorAll("#packetBody tr")];
+  if(!rows.length)return;
+  const idx=selectedRow?rows.indexOf(selectedRow):-1;
+  const next=idx+dir;
+  if(next<0||next>=rows.length)return;
+  const no=parseInt(rows[next].dataset.no,10);
+  selectPacket(no);
+}
+
 function renderDetail(p){
-  const el=document.getElementById("detail"); el.innerHTML="";
-  const meta=document.createElement("div"); meta.className="detail-meta";
-  meta.innerHTML=`<b>No.${p.no}</b> <span class="badge" style="color:${protoColors[p.proto]||'#94a3b8'}">${esc(p.proto)}</span>`
-    +`&nbsp; 长度=${p.len} &nbsp; ${esc(p.src)} → ${esc(p.dst)}`;
+  const el=document.getElementById("detail");el.innerHTML="";
+  const meta=document.createElement("div");meta.className="detail-meta";
+  const c=protoColors[p.proto]||"#8893a5";
+  meta.innerHTML=`No.<b class="mono">${p.no}</b> <span class="proto-tag" style="background:${c}22;color:${c}">${esc(p.proto)}</span>`
+    +`&nbsp;长度 <b class="mono">${p.len}</b>&nbsp; ${esc(p.src)} → ${esc(p.dst)}`
+    +`&nbsp;<span style="opacity:.75">时间 <b class="mono">${fmtTime(p.ts)}s</b></span>`;
   el.appendChild(meta);
   p.layers.forEach(layer=>{
-    const d=document.createElement("details"); d.open=true;
-    const s=document.createElement("summary"); s.textContent=layer.name; d.appendChild(s);
-    const tbl=document.createElement("div"); tbl.className="field-table";
+    const d=document.createElement("details");d.open=true;
+    const s=document.createElement("summary");s.textContent=layer.name;d.appendChild(s);
+    const tbl=document.createElement("div");tbl.className="field-table";
     for(const [k,v] of Object.entries(layer.fields)){
-      const row=document.createElement("div"); row.className="field-row";
+      const row=document.createElement("div");row.className="field-row";
       row.innerHTML=`<span class="k">${esc(k)}</span><span class="v">${esc(v)}</span>`;
       tbl.appendChild(row);
     }
-    d.appendChild(tbl); el.appendChild(d);
+    d.appendChild(tbl);el.appendChild(d);
   });
 }
 
 function renderHex(p){
   const el=document.getElementById("hex");
-  const hex=p.raw_hex||""; let html=""; const B=16;
+  const hex=p.raw_hex||"";
+  let html='<div class="hex-line hex-head"><span class="off"></span><span class="hx">00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F</span><span class="asc">ASCII</span></div>';
+  const B=16;
   for(let i=0;i<hex.length;i+=B*2){
-    const offset=i/2, line=hex.slice(i,i+B*2);
+    const offset=i/2,line=hex.slice(i,i+B*2);
     let hx="",asc="";
     for(let j=0;j<line.length;j+=2){
       const b=parseInt(line.slice(j,j+2),16);
@@ -260,29 +452,114 @@ function renderHex(p){
     html+=`<div class="hex-line"><span class="off">${hex8(offset)}</span>`
       +`<span class="hx">${hx}</span><span class="asc">${asc}</span></div>`;
   }
-  if(p.raw_truncated)html+=`<div class="trunc">…（已截断，仅显示前 ${hex.length/2} 字节）</div>`;
-  el.innerHTML=html||'<span style="color:var(--muted)">点击上方数据包查看原始字节</span>';
+  if(p.raw_truncated)html+=`<div class="trunc">已截断，仅显示前 ${hex.length/2} 字节</div>`;
+  el.innerHTML=html||'<span class="placeholder">无数据</span>';
 }
 
 async function followStream(){
   if(!selected||!selected.flowkey)return;
+  await followStreamByKey(selected.flowkey);
+}
+
+async function followStreamByKey(key){
   try{
-    const r=await api("/follow/"+encodeURIComponent(selected.flowkey));
-    let html=`<div class="flow-label">${esc(r.label)} &nbsp;（${r.packets} 个包）</div>`;
+    const r=await api("/follow/"+encodeURIComponent(key));
+    let html=`<div class="flow-label">${esc(r.label)}（${r.packets} 个包）</div>`;
+    html+=`<div style="margin-bottom:10px"><button onclick="downloadFlow('${key}')" title="导出重组后的双向流内容为 txt">导出此流内容 (txt)</button></div>`;
     if(r.segments&&r.segments.length){
       const t0=r.segments[0].ts;
-      html+=`<h4>流时序图</h4><table class="proc-table"><tr><th>时间(s)</th><th>方向</th><th>标志</th><th>Seq</th><th>Ack</th><th>Len</th></tr>`;
-      r.segments.slice(0,300).forEach(s=>{
-        html+=`<tr><td>${(s.ts-t0).toFixed(6)}</td><td>${s.forward?"→":"←"}</td>`
-          +`<td>${esc(s.flags||"")}</td><td>${s.seq??""}</td><td>${s.ack??""}</td><td>${s.len}</td></tr>`;
+      html+=`<h4>时序图</h4>`+renderFlowDiagram(r.segments,t0);
+      html+=`<h4>时序明细</h4><table class="proc-table"><tr><th>时间(s)</th><th>方向</th><th>标志</th><th>Seq</th><th>Ack</th><th>Len</th></tr>`;
+      r.segments.slice(0,150).forEach(s=>{
+        html+=`<tr><td class="mono">${(s.ts-t0).toFixed(6)}</td><td>${s.forward?"→":"←"}</td>`
+          +`<td>${esc(s.flags||"")}</td><td class="mono">${s.seq??""}</td><td class="mono">${s.ack??""}</td><td class="mono">${s.len}</td></tr>`;
       });
       html+=`</table>`;
     }
-    r.directions.forEach(d=>{
-      html+=`<div class="flow-dir">${esc(d.direction)}</div><pre>${esc(d.text)}</pre>`;
-    });
+    if(r.directions&&r.directions.length){
+      r.directions.forEach(d=>{
+        html+=`<div class="flow-dir">${esc(d.direction)}</div><pre>${esc(d.text)}</pre>`;
+      });
+    }else{
+      html+=`<div class="empty-note">该流暂未捕获到可重组的数据段。</div>`;
+    }
     openModal("Follow TCP Stream",html);
   }catch(e){alert("Follow 失败："+e.message);}
+}
+
+function downloadFlow(key){
+  const a=document.createElement("a");
+  a.href="/export_flow/"+encodeURIComponent(key);
+  a.download="flow.txt";
+  document.body.appendChild(a);a.click();a.remove();
+}
+
+async function showFlows(){
+  try{
+    const r=await api("/flows");
+    const flows=r.flows||[];
+    let html=`<div style="margin-bottom:8px">共 <b class="mono">${flows.length}</b> 条 TCP 会话</div>`;
+    if(!flows.length){html+=`<div class="empty-note">暂无捕获到的 TCP 会话。</div>`;}
+    else{
+      html+=`<table class="proc-table"><tr><th>#</th><th>源端点</th><th>目的端点</th><th>包数</th><th>字节</th><th>时长(s)</th><th></th></tr>`;
+      flows.forEach((f,i)=>{
+        const dur=(f.last_ts-f.first_ts).toFixed(3);
+        html+=`<tr onclick="followStreamByKey('${f.key}')">`
+          +`<td class="mono">${i+1}</td><td class="mono">${esc(f.src)}</td><td class="mono">${esc(f.dst)}</td>`
+          +`<td class="mono">${f.packets}</td><td class="mono">${fmtBytes(f.bytes)}</td><td class="mono">${dur}</td>`
+          +`<td><button onclick="event.stopPropagation();downloadFlow('${f.key}')">导出</button></td></tr>`;
+      });
+      html+=`</table><div class="empty-note" style="margin-top:6px">点击任意一行查看该流的时序图与内容。</div>`;
+    }
+    openModal("TCP 会话流",html);
+  }catch(e){alert("获取会话失败："+e.message);}
+}
+
+function renderFlowDiagram(segments,t0){
+  const MAX=60;
+  const shown=segments.slice(0,MAX);
+  const rowH=30, leftX=150, rightX=480, w=640;
+  const top=74;
+  const h=top+shown.length*rowH+16;
+  let svg=`<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="display:block">`;
+  svg+=`<rect x="0" y="0" width="${w}" height="${h}" rx="7" fill="#1b1f28"/>`;
+  shown.forEach((s,i)=>{if(i%2===0)svg+=`<rect x="0" y="${top+i*rowH+2}" width="${w}" height="${rowH-4}" fill="#20252f"/>`;});
+  svg+=`<g font-size="11" fill="#a9b0bd">`
+    +`<circle cx="16" cy="13" r="4" fill="#d9a44a"/><text x="26" y="17">握手(SYN)</text>`
+    +`<circle cx="122" cy="13" r="4" fill="#5b8fc9"/><text x="132" y="17">正向</text>`
+    +`<circle cx="196" cy="13" r="4" fill="#58a26f"/><text x="206" y="17">反向</text>`
+    +`</g>`;
+  svg+=`<line x1="12" y1="28" x2="${w-12}" y2="28" stroke="#2b3140" stroke-width="1"/>`;
+  svg+=`<text x="${leftX}" y="48" fill="#d5dae3" font-size="11.5" font-weight="600" text-anchor="middle">客户端</text>`;
+  svg+=`<text x="${rightX}" y="48" fill="#d5dae3" font-size="11.5" font-weight="600" text-anchor="middle">服务器</text>`;
+  svg+=`<circle cx="${leftX}" cy="60" r="4" fill="#5b8fc9"/>`;
+  svg+=`<circle cx="${rightX}" cy="60" r="4" fill="#58a26f"/>`;
+  svg+=`<defs>`
+    +`<linearGradient id="ll" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6a7490"/><stop offset="1" stop-color="#39404f"/></linearGradient>`
+    +`<marker id="aF" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#5b8fc9"/></marker>`
+    +`<marker id="aR" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#58a26f"/></marker>`
+    +`<marker id="aS" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#d9a44a"/></marker>`
+    +`</defs>`;
+  svg+=`<line x1="${leftX}" y1="60" x2="${leftX}" y2="${h-10}" stroke="url(#ll)" stroke-width="1.5"/>`;
+  svg+=`<line x1="${rightX}" y1="60" x2="${rightX}" y2="${h-10}" stroke="url(#ll)" stroke-width="1.5"/>`;
+  shown.forEach((s,i)=>{
+    const y=top+12+i*rowH;
+    const isSyn=/SYN/.test(s.flags||"");
+    const color=isSyn?"#d9a44a":(s.forward?"#5b8fc9":"#58a26f");
+    const mk=isSyn?"aS":(s.forward?"aF":"aR");
+    const x1=s.forward?leftX:rightX;
+    const x2=s.forward?(rightX-9):(leftX+9);
+    svg+=`<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="${color}" stroke-width="1.6" marker-end="url(#${mk})"/>`;
+    let label=(s.flags||"").trim();
+    if(s.len>0)label+=(label?" ":"")+s.len+"B";
+    if(label){
+      svg+=`<text x="${(leftX+rightX)/2}" y="${y-5}" fill="#d5dae3" font-size="9.5" text-anchor="middle" font-family="Consolas,monospace">${esc(label)}</text>`;
+    }
+    svg+=`<text x="${leftX-14}" y="${y+3}" fill="#6d7583" font-size="9" text-anchor="end" font-family="Consolas,monospace">${((s.ts-t0)*1000).toFixed(1)}ms</text>`;
+  });
+  svg+=`</svg>`;
+  if(segments.length>MAX)svg+=`<div class="trunc" style="margin-top:6px">仅显示前 ${MAX} 个段（共 ${segments.length} 个）</div>`;
+  return svg;
 }
 
 async function showProcesses(){
@@ -290,44 +567,93 @@ async function showProcesses(){
     const r=await api("/processes");
     let html='<table class="proc-table"><tr><th>进程</th><th>PID</th><th>IP:端口</th></tr>';
     r.connections.forEach(c=>{
-      html+=`<tr><td>${esc(c.name)}</td><td>${c.pid}</td><td>${esc(c.ip)}:${c.port}</td></tr>`;
+      html+=`<tr><td>${esc(c.name)}</td><td class="mono">${c.pid}</td><td class="mono">${esc(c.ip)}:${c.port}</td></tr>`;
     });
     html+="</table>";
-    openModal("进程 → 连接映射（本机）",html);
+    if(!r.connections.length)html+='<div class="empty-note">未发现带网络连接的本机进程。</div>';
+    openModal("进程 → 连接映射",html);
   }catch(e){alert("获取进程信息失败："+e.message);}
 }
 
-function showStats(){
-  const byProto={}, bySrc={}, byDst={};
-  let totalBytes=0;
-  const n=packets.length;
-  packets.forEach(p=>{
-    byProto[p.proto]=(byProto[p.proto]||0)+1;
-    totalBytes+=p.len||0;
-    if(p.src)bySrc[p.src]=(bySrc[p.src]||0)+1;
-    if(p.dst)byDst[p.dst]=(byDst[p.dst]||0)+1;
+async function showStats(){
+  try{
+    const r=await api("/stats");
+    const n=r.total||0, bytes=r.bytes||0, protos=r.protos||{};
+    let html=`<div class="stat-cards">`
+      +`<div class="stat-card"><div class="num">${n}</div><div class="lbl">总包数</div></div>`
+      +`<div class="stat-card"><div class="num">${fmtBytes(bytes)}</div><div class="lbl">总字节</div></div>`
+      +`<div class="stat-card"><div class="num">${rateTimes.length}</div><div class="lbl">当前速率 pkt/s</div></div>`
+      +`</div>`;
+    html+=`<div class="charts-row">`;
+    html+=`<div class="chart-box"><h4>协议分布</h4>`+pieChart(protos)+`</div>`;
+    html+=`<div class="chart-box"><h4>抓包速率（最近 60s）</h4>`+rateChart(rateHistory)+`</div>`;
+    html+=`</div>`;
+    // Top 端点
+    const top=(o,c)=>Object.entries(o).sort((a,b)=>b[1]-a[1]).slice(0,c);
+    html+=`<h4>Top 源端点</h4><table class="proc-table"><tr><th>端点</th><th>包数</th></tr>`;
+    top(r.src||{},10).forEach(([k,v])=>{html+=`<tr><td class="mono">${esc(k)}</td><td class="mono">${v}</td></tr>`;});
+    html+=`</table><h4>Top 目的端点</h4><table class="proc-table"><tr><th>端点</th><th>包数</th></tr>`;
+    top(r.dst||{},10).forEach(([k,v])=>{html+=`<tr><td class="mono">${esc(k)}</td><td class="mono">${v}</td></tr>`;});
+    html+=`</table>`;
+    openModal("协议统计",html);
+  }catch(e){alert("获取统计失败："+e.message);}
+}
+
+function pieChart(protos){
+  const entries=Object.entries(protos).sort((a,b)=>b[1]-a[1]);
+  const total=entries.reduce((s,e)=>s+e[1],0);
+  if(!total)return '<div class="empty-note">暂无数据</div>';
+  const cx=90, cy=90, r=70, inner=40;
+  let angle=-Math.PI/2;
+  let svg=`<svg width="180" height="180" viewBox="0 0 180 180">`;
+  entries.forEach(([k,v])=>{
+    const frac=v/total;
+    const a1=angle+frac*Math.PI*2;
+    const x0=cx+r*Math.cos(angle), y0=cy+r*Math.sin(angle);
+    const x1=cx+r*Math.cos(a1), y1=cy+r*Math.sin(a1);
+    const large=frac>0.5?1:0;
+    const c=protoColors[k]||"#8893a5";
+    svg+=`<path d="M ${cx} ${cy} L ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z" fill="${c}" stroke="#21252e" stroke-width="1"/>`;
+    angle=a1;
   });
-  const top=(o,c)=>Object.entries(o).sort((a,b)=>b[1]-a[1]).slice(0,c);
-  let html=`<div>总包数：<b>${n}</b>　总字节：<b>${totalBytes}</b></div>`;
-  html+=`<h4>协议分布</h4><table class="proc-table"><tr><th>协议</th><th>数量</th><th>占比</th></tr>`;
-  top(byProto,10).forEach(([k,v])=>{
-    html+=`<tr><td>${esc(k)}</td><td>${v}</td><td>${n?(100*v/n).toFixed(1):"0"}%</td></tr>`;
+  svg+=`<circle cx="${cx}" cy="${cy}" r="${inner}" fill="#21252e"/>`;
+  svg+=`<text x="${cx}" y="${cy-4}" fill="#eceef3" font-size="14" font-weight="700" text-anchor="middle">${total}</text>`;
+  svg+=`<text x="${cx}" y="${cy+12}" fill="#8b93a3" font-size="9" text-anchor="middle">包</text>`;
+  svg+=`</svg>`;
+  let legend='<div class="legend" style="flex-wrap:wrap;gap:8px;max-width:220px">';
+  entries.slice(0,10).forEach(([k,v])=>{
+    const c=protoColors[k]||"#8893a5";
+    legend+=`<span class="lg-item"><i style="background:${c}"></i>${esc(k)} ${(100*v/total).toFixed(1)}%</span>`;
   });
-  html+=`</table><h4>Top 源端点</h4><table class="proc-table"><tr><th>端点</th><th>包数</th></tr>`;
-  top(bySrc,10).forEach(([k,v])=>{html+=`<tr><td>${esc(k)}</td><td>${v}</td></tr>`;});
-  html+=`</table><h4>Top 目的端点</h4><table class="proc-table"><tr><th>端点</th><th>包数</th></tr>`;
-  top(byDst,10).forEach(([k,v])=>{html+=`<tr><td>${esc(k)}</td><td>${v}</td></tr>`;});
-  html+=`</table>`;
-  openModal("协议统计",html);
+  legend+='</div>';
+  return `<div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">${svg}${legend}</div>`;
+}
+
+function rateChart(hist){
+  if(!hist||hist.length<2)return '<div class="empty-note">速率数据采集中（每秒采样一次）…</div>';
+  const w=560, h=120, pad=10;
+  const max=Math.max(5,...hist);
+  const n=hist.length;
+  const pts=hist.map((v,i)=>[pad+i*(w-2*pad)/(n-1), h-pad-(v/max)*(h-2*pad)]);
+  const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+  let svg=`<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}">`;
+  svg+=`<rect width="${w}" height="${h}" rx="6" fill="#1b1f28"/>`;
+  svg+=`<path d="${line}" fill="none" stroke="#c9a05c" stroke-width="1.6"/>`;
+  const maxI=hist.indexOf(max);
+  svg+=`<circle cx="${pts[maxI][0].toFixed(1)}" cy="${pts[maxI][1].toFixed(1)}" r="2.5" fill="#c9a05c"/>`;
+  svg+=`<text x="${w-6}" y="${h-pad-2}" fill="#8b93a3" font-size="9" text-anchor="end">峰值 ${max} pkt/s</text>`;
+  svg+=`<text x="${pad}" y="${h-pad-2}" fill="#8b93a3" font-size="9">0</text>`;
+  svg+=`</svg>`;
+  return svg;
 }
 
 async function savePcap(){
-  const path=prompt("保存到服务器的哪个路径？","/tmp/sniffer_capture.pcap");
+  const path=prompt("保存到哪个路径？","D:\\sniffer_capture.pcap");
   if(!path)return;
   try{
     const r=await api("/save",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({path})});
-    alert("已保存到服务器："+r.path+"\n可用 scp 取回本机。");
+    alert("已保存："+r.path);
   }catch(e){alert("保存失败："+e.message);}
 }
 
@@ -337,8 +663,60 @@ function openModal(title,html){
   document.getElementById("modal").style.display="flex";
 }
 function closeModal(){document.getElementById("modal").style.display="none";}
+document.getElementById("modal").addEventListener("click",e=>{if(e.target.id==="modal")closeModal();});
 
-window.addEventListener("load",()=>{loadDevices();connectStream();});
+/* ---- 可拖拽三栏 ---- */
+function initResize(){
+  const grid=document.getElementById("grid");
+  const panes=["listPane","detailPane","hexPane"].map(id=>document.getElementById(id));
+  const dividers=[...document.querySelectorAll(".divider")];
+  const sizes=[56,26,18];
+  function apply(){panes.forEach((p,i)=>p.style.flex=sizes[i]+" 1 0");}
+  apply();
+  dividers.forEach((div,idx)=>{
+    div.addEventListener("mousedown",e=>{
+      e.preventDefault();
+      const H=grid.clientHeight;
+      const total=sizes[idx]+sizes[idx+1];
+      const startY=e.clientY, start0=sizes[idx];
+      const minPct=70*total/H; // 每个 pane 至少 70px
+      div.classList.add("dragging");
+      function onMove(ev){
+        const dPct=(ev.clientY-startY)*total/H;
+        let s0=start0+dPct;
+        s0=Math.max(minPct,Math.min(total-minPct,s0));
+        sizes[idx]=s0;sizes[idx+1]=total-s0;
+        apply();
+      }
+      function onUp(){
+        div.classList.remove("dragging");
+        window.removeEventListener("mousemove",onMove);
+        window.removeEventListener("mouseup",onUp);
+      }
+      window.addEventListener("mousemove",onMove);
+      window.addEventListener("mouseup",onUp);
+    });
+  });
+}
+
+/* ---- 键盘快捷键 ---- */
+document.addEventListener("keydown",e=>{
+  const tag=(e.target.tagName||"").toLowerCase();
+  if(tag==="input"||tag==="select"||tag==="textarea"||tag==="button")return;
+  if(e.code==="Space"){e.preventDefault();running?stopCapture():startCapture();}
+  else if(e.key==="/"){e.preventDefault();document.getElementById("searchBox").focus();}
+  else if(e.key==="ArrowUp"){e.preventDefault();selectAdjacent(-1);}
+  else if(e.key==="ArrowDown"){e.preventDefault();selectAdjacent(1);}
+});
+
+/* ---- 速率采样（供统计曲线） ---- */
+setInterval(()=>{
+  rateHistory.push(rateTimes.length);
+  if(rateHistory.length>60)rateHistory.shift();
+},1000);
+
+console.log("sniffer-v4 已加载");
+loadDevices();connectStream();buildLegend();initResize();
 </script>
 </body>
 </html>

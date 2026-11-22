@@ -13,6 +13,7 @@ import socket
 import struct
 import threading
 import time
+from collections.abc import Callable
 from ctypes import (c_void_p, c_char_p, c_int, c_uint, c_uint32, c_long,
                     POINTER, Structure, byref, create_string_buffer,
                     string_at, c_ubyte)
@@ -97,7 +98,7 @@ class CaptureError(Exception):
     pass
 
 
-def list_devices():
+def list_devices() -> list[dict[str, str]]:
     """枚举网卡"""
     if HAS_LIBPCAP:
         alldevs = POINTER(pcap_if)()
@@ -121,7 +122,7 @@ def list_devices():
         return [{"name": n, "description": ""} for n in sorted(os.listdir("/sys/class/net"))]
 
 
-def filter_match(expr, pkt):
+def filter_match(expr: str, pkt: dict) -> bool:
     """简单的用户态过滤，仅在无 libpcap（原始套接字）时使用。
     支持 tcp / udp / icmp / ip / ip6 / port N 等关键字。"""
     if not expr:
@@ -155,14 +156,15 @@ class Capture:
         self._packets = []        # (sec, usec, caplen, len, raw)
 
     @property
-    def running(self):
+    def running(self) -> bool:
         return self._running
 
     @property
-    def using_libpcap(self):
+    def using_libpcap(self) -> bool:
         return HAS_LIBPCAP
 
-    def open(self, device, filter_str="", promisc=1, snaplen=65536, timeout=1000):
+    def open(self, device: str, filter_str: str = "", promisc: int = 1,
+             snaplen: int = 65536, timeout: int = 1000) -> None:
         self.filter = filter_str
         if HAS_LIBPCAP:
             errbuf = create_string_buffer(256)
@@ -187,7 +189,7 @@ class Capture:
                 pass
             self.datalink = 1
 
-    def set_filter(self, expr):
+    def set_filter(self, expr: str) -> None:
         self.filter = expr
         if HAS_LIBPCAP:
             fp = bpf_program()
@@ -198,11 +200,11 @@ class Capture:
                 raise CaptureError(self._err())
             _lib.pcap_freecode(byref(fp))
 
-    def _err(self):
+    def _err(self) -> str:
         e = _lib.pcap_geterr(self._handle)
         return e.decode(errors="replace") if e else "unknown pcap error"
 
-    def start(self, callback):
+    def start(self, callback: Callable[[bytes, float, int, int], None]) -> None:
         if self._running:
             return
         self._running = True
@@ -251,13 +253,13 @@ class Capture:
         if len(self._packets) > 20000:
             self._packets.pop(0)
 
-    def stop(self):
+    def stop(self) -> None:
         self._running = False
         if self._thread:
             self._thread.join(timeout=2)
             self._thread = None
 
-    def close(self):
+    def close(self) -> None:
         self.stop()
         if HAS_LIBPCAP and self._handle:
             _lib.pcap_close(self._handle)
@@ -269,7 +271,7 @@ class Capture:
                 pass
             self._raw_sock = None
 
-    def stats(self):
+    def stats(self) -> dict[str, int] | None:
         """返回抓包统计 (received/dropped/if_dropped)；无 libpcap 或未打开时返回 None。"""
         if not HAS_LIBPCAP or not self._handle:
             return None
@@ -279,7 +281,7 @@ class Capture:
         return {"received": st.ps_recv, "dropped": st.ps_drop,
                 "if_dropped": st.ps_ifdrop}
 
-    def save_pcap(self, path):
+    def save_pcap(self, path: str) -> None:
         """把本次会话已抓到的包导出成标准 pcap 文件"""
         snap = list(self._packets)
         if HAS_LIBPCAP:

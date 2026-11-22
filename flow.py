@@ -11,10 +11,10 @@ class FlowTracker:
     def __init__(self):
         self.flows = {}
 
-    def reset(self):
+    def reset(self) -> None:
         self.flows.clear()
 
-    def add(self, pkt):
+    def add(self, pkt: dict) -> None:
         key = pkt.get("flowkey")
         if not key:
             return
@@ -50,7 +50,7 @@ class FlowTracker:
             "ts": pkt.get("ts", 0),
         })
 
-    def follow(self, key):
+    def follow(self, key: str) -> dict | None:
         """返回重组后的双向流内容 + 时序段列表"""
         flow = self.flows.get(key)
         if not flow:
@@ -101,7 +101,7 @@ class FlowTracker:
         return {"label": flow["label"], "packets": flow["n"],
                 "directions": out_dirs, "segments": segments}
 
-    def list(self):
+    def list(self) -> list[dict]:
         """返回所有流的摘要，供前端「会话」面板展示。"""
         out = []
         for key, f in self.flows.items():
@@ -120,7 +120,7 @@ class FlowTracker:
         out.sort(key=lambda x: x["first_ts"])
         return out
 
-    def flows_for_connections(self, conns):
+    def flows_for_connections(self, conns: list[dict]) -> set[str]:
         """返回与给定连接列表相关的流 key 集合。
 
         conns 为 get_process_connections() 的元素，含 local_ip/port、remote_ip/port。
@@ -140,16 +140,16 @@ class FlowTracker:
 
 
 # ---------- 进程 → 连接映射（Linux） ----------
-def _ipv4_from_hex(h):
+def _ipv4_from_hex(h: str) -> str:
     return socket.inet_ntoa(bytes.fromhex(h)[::-1])
 
 
-def _ipv6_from_hex(h):
+def _ipv6_from_hex(h: str) -> str:
     parts = [bytes.fromhex(h[i:i + 8])[::-1] for i in range(0, 32, 8)]
     return socket.inet_ntop(socket.AF_INET6, b"".join(parts))
 
 
-def _parse_net_file(content, family):
+def _parse_net_file(content: str, family: int) -> dict[tuple[str, int], int]:
     mapping = {}
     for line in content.strip().split("\n")[1:]:
         parts = line.split()
@@ -169,7 +169,7 @@ def _parse_net_file(content, family):
     return mapping
 
 
-def get_process_map():
+def get_process_map() -> dict[tuple[str, int], tuple[int, str]]:
     """返回 {(ip, port): (pid, 进程名)}；Linux 用 /proc，Windows 用 netstat+tasklist"""
     if os.path.isdir("/proc"):
         return _get_process_map_linux()
@@ -265,20 +265,20 @@ def _get_process_map_windows():
 
 
 # ---------- 进程 → 连接（含远端地址），用于「某进程产生的所有流」加分项 ----------
-def _tcp_state(h):
+def _tcp_state(h: int) -> str:
     return {0x01: "ESTABLISHED", 0x02: "SYN_SENT", 0x03: "SYN_RECV",
             0x04: "FIN_WAIT1", 0x05: "FIN_WAIT2", 0x06: "TIME_WAIT",
             0x07: "CLOSE", 0x08: "CLOSE_WAIT", 0x09: "LAST_ACK",
             0x0A: "LISTEN", 0x0B: "CLOSING"}.get(h, f"0x{h:02X}")
 
 
-def _split_addr(hexstr, v6):
+def _split_addr(hexstr: str, v6: bool) -> tuple[str, int]:
     ip_hex, port_hex = hexstr.rsplit(":", 1)
     ip = _ipv6_from_hex(ip_hex) if v6 else _ipv4_from_hex(ip_hex)
     return ip, int(port_hex, 16)
 
 
-def _build_inode_to_proc():
+def _build_inode_to_proc() -> dict[int, tuple[int, str]]:
     inode_to_proc = {}
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
@@ -303,7 +303,7 @@ def _build_inode_to_proc():
     return inode_to_proc
 
 
-def _connections_linux():
+def _connections_linux() -> list[dict]:
     inode_to_proc = _build_inode_to_proc()
     conns = []
     for family, path, v6 in ((4, "/proc/net/tcp", False), (6, "/proc/net/tcp6", True)):
@@ -336,7 +336,7 @@ def _connections_linux():
     return conns
 
 
-def _connections_windows():
+def _connections_windows() -> list[dict]:
     import subprocess
     pid_name = {}
     try:
@@ -381,7 +381,7 @@ def _connections_windows():
     return conns
 
 
-def _split_win_addr(s):
+def _split_win_addr(s: str) -> tuple[str, int]:
     if s.startswith("["):
         ip, port = s.rsplit("]:", 1)
         ip = ip[1:]
@@ -390,7 +390,7 @@ def _split_win_addr(s):
     return ip, int(port)
 
 
-def get_process_connections():
+def get_process_connections() -> list[dict]:
     """返回本机所有 TCP/UDP 连接与进程的关联，含远端地址与状态。
 
     Linux 用 /proc（fd inode 关联），Windows 用 netstat + tasklist。

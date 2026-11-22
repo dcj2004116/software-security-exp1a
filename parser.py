@@ -17,20 +17,20 @@ DLT_LINUX_SLL2 = 276
 
 
 # ---------- 格式化 ----------
-def _mac(b):
+def _mac(b: bytes) -> str:
     return ":".join(f"{x:02x}" for x in b)
 
 
-def _ipv4(b):
+def _ipv4(b: bytes) -> str:
     return socket.inet_ntoa(b)
 
 
-def _ipv6(b):
+def _ipv6(b: bytes) -> str:
     return socket.inet_ntop(socket.AF_INET6, b)
 
 
 # ---------- 链路层 ----------
-def parse_ethernet(data):
+def parse_ethernet(data: bytes) -> tuple[dict | None, bytes, int | None]:
     if len(data) < 14:
         return None, b"", None
     dst, src, etype = struct.unpack("!6s6sH", data[:14])
@@ -44,7 +44,7 @@ def parse_ethernet(data):
     return {"name": "Ethernet II", "fields": fields}, rest, etype
 
 
-def parse_arp(data):
+def parse_arp(data: bytes) -> tuple[dict | None, bytes]:
     if len(data) < 28:
         return None, b""
     htype, ptype, hlen, plen, op, sha, spa, tha, tpa = struct.unpack(
@@ -58,7 +58,7 @@ def parse_arp(data):
 
 
 # ---------- 网络层 ----------
-def parse_ipv4(data):
+def parse_ipv4(data: bytes) -> tuple[dict | None, bytes, int | None]:
     if len(data) < 20:
         return None, b"", None
     vihl, tos, tot, ident, frag, ttl, proto, csum, src, dst = struct.unpack(
@@ -77,7 +77,7 @@ def parse_ipv4(data):
     return layer, rest, proto
 
 
-def parse_ipv6(data):
+def parse_ipv6(data: bytes) -> tuple[dict | None, bytes, int | None]:
     if len(data) < 40:
         return None, b"", None
     vtc, plen, nh, hop, src, dst = struct.unpack("!IHBB16s16s", data[:40])
@@ -113,7 +113,7 @@ def parse_ipv6(data):
 
 
 # ---------- 传输层 ----------
-def parse_tcp(data):
+def parse_tcp(data: bytes) -> tuple[dict | None, bytes, tuple[int, int] | None]:
     if len(data) < 20:
         return None, b"", None
     sport, dport, seq, ack, off_res, flags, win, csum, urg = struct.unpack(
@@ -136,7 +136,7 @@ def parse_tcp(data):
     return layer, data[off:], (sport, dport)
 
 
-def parse_udp(data):
+def parse_udp(data: bytes) -> tuple[dict | None, bytes, tuple[int, int] | None]:
     if len(data) < 8:
         return None, b"", None
     sport, dport, ulen, csum = struct.unpack("!HHHH", data[:8])
@@ -146,7 +146,7 @@ def parse_udp(data):
     return layer, data[8:], (sport, dport)
 
 
-def parse_icmp(data):
+def parse_icmp(data: bytes) -> tuple[dict | None, bytes]:
     if len(data) < 4:
         return None, b""
     itype, code, csum = struct.unpack("!BBH", data[:4])
@@ -166,7 +166,7 @@ HTTP_METHODS = (b"GET ", b"POST ", b"PUT ", b"DELETE ", b"HEAD ",
                 b"OPTIONS ", b"PATCH ", b"CONNECT ", b"TRACE ")
 
 
-def _first_line(data):
+def _first_line(data: bytes) -> tuple[str, bytes]:
     e = data.find(b"\r\n")
     if e < 0:
         e = data.find(b"\n")
@@ -175,7 +175,7 @@ def _first_line(data):
     return data[:e].decode(errors="replace"), data[e + 2:]
 
 
-def parse_http(data):
+def parse_http(data: bytes) -> tuple[dict | None, bytes]:
     if data.startswith(b"HTTP/"):
         line, rest = _first_line(data)
         hdr_end = rest.find(b"\r\n\r\n")
@@ -196,7 +196,7 @@ def parse_http(data):
     return None, data
 
 
-def parse_dns(data):
+def parse_dns(data: bytes) -> tuple[dict | None, bytes]:
     if len(data) < 12:
         return None, data
     txid, flags, qd, an, ns, ar = struct.unpack("!HHHHHH", data[:12])
@@ -222,7 +222,7 @@ def parse_dns(data):
     return {"name": "DNS", "fields": fields}, data[12:]
 
 
-def _tls_sni(data):
+def _tls_sni(data: bytes) -> str | None:
     """从 TLS ClientHello 报文里提取 SNI 域名（Server Name Indication）。
 
     data 以 TLS Record 头（ContentType=22 Handshake）开始。逐字段解析
@@ -272,7 +272,7 @@ def _tls_sni(data):
         return None
 
 
-def parse_dhcp(data):
+def parse_dhcp(data: bytes) -> tuple[dict | None, bytes]:
     """解析 DHCP 报文（UDP 67/68）。RFC 2131。"""
     if len(data) < 240:
         return None, data
@@ -324,7 +324,7 @@ def parse_dhcp(data):
     return {"name": "DHCP", "fields": fields}, data
 
 
-def parse_tls(data):
+def parse_tls(data: bytes) -> tuple[dict | None, bytes]:
     if len(data) < 3:
         return None, data
     ctype, ver = struct.unpack("!BH", data[:3])
@@ -349,7 +349,7 @@ def parse_tls(data):
 
 
 # ---------- 应用层识别 ----------
-def _detect_app(sport, dport, payload):
+def _detect_app(sport: int, dport: int, payload: bytes) -> tuple[str | None, dict | None]:
     if sport in (80, 8080) or dport in (80, 8080):
         layer, _ = parse_http(payload)
         if layer:
@@ -372,7 +372,7 @@ def _detect_app(sport, dport, payload):
     return None, None
 
 
-def _flow_key(src_ip, dst_ip, sport, dport):
+def _flow_key(src_ip: str, dst_ip: str, sport: int, dport: int) -> str:
     for fam in (socket.AF_INET, socket.AF_INET6):
         try:
             a = socket.inet_pton(fam, src_ip)
@@ -388,7 +388,8 @@ def _flow_key(src_ip, dst_ip, sport, dport):
 
 
 # ---------- 内部：传输层之后的处理 ----------
-def _handle_transport(layer, rest, ports, layers, pkt, is_tcp):
+def _handle_transport(layer: dict, rest: bytes, ports: tuple[int, int],
+                      layers: list, pkt: dict, is_tcp: bool) -> None:
     layers.append(layer)
     sport, dport = ports
     pkt["sport"], pkt["dport"] = sport, dport
@@ -438,7 +439,7 @@ def _handle_transport(layer, rest, ports, layers, pkt, is_tcp):
             pkt["summary"] = f"{sport} → {dport} Len={len(rest)}"
 
 
-def _parse_ip(data, layers, pkt, v6):
+def _parse_ip(data: bytes, layers: list, pkt: dict, v6: bool) -> None:
     if v6:
         layer, rest, nh = parse_ipv6(data)
         if layer is None:
@@ -494,7 +495,8 @@ def _parse_ip(data, layers, pkt, v6):
 
 
 # ---------- 主入口 ----------
-def parse(raw, ts, linktype=DLT_EN10MB, no=0, length=None):
+def parse(raw: bytes, ts: float, linktype: int = DLT_EN10MB,
+          no: int = 0, length: int | None = None) -> dict:
     length = length if length is not None else len(raw)
     pkt = {
         "no": no, "ts": ts, "len": length, "caplen": len(raw),

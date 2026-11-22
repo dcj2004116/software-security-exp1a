@@ -14,6 +14,7 @@ HTTP 接口：
 运行：sudo python3 app.py   （抓包需要 root / CAP_NET_RAW）
 """
 import json
+import logging
 import os
 import time
 import queue
@@ -24,6 +25,11 @@ from urllib.parse import unquote
 import capture
 import parser as P
 import flow as F
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s [%(levelname)s] %(message)s",
+                    datefmt="%H:%M:%S")
+log = logging.getLogger("sniffer")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -42,7 +48,7 @@ _raw_cache = {}          # 包编号 -> 原始字节，供 /raw/{no} 按需取�
 RAW_CACHE_MAX = 10000
 
 
-def _cached_connections():
+def _cached_connections() -> list:
     now = time.time()
     if now - _conn_cache["t"] > 3 or not _conn_cache["data"]:
         _conn_cache["data"] = F.get_process_connections()
@@ -50,7 +56,7 @@ def _cached_connections():
     return _conn_cache["data"]
 
 
-def to_json(pkt):
+def to_json(pkt: dict) -> dict:
     """去掉 payload，保留原始字节前 256 字节的 hex 供前端直接显示"""
     d = {k: v for k, v in pkt.items() if k not in ("payload", "raw")}
     raw = pkt.get("raw", b"")
@@ -59,7 +65,7 @@ def to_json(pkt):
     return d
 
 
-def on_packet(raw, ts, caplen, length):
+def on_packet(raw: bytes, ts: float, caplen: int, length: int) -> None:
     counter["n"] += 1
     no = counter["n"]
     pkt = P.parse(raw, ts, capture_obj.datalink, no, length)
@@ -91,7 +97,7 @@ def on_packet(raw, ts, caplen, length):
             pass
 
 
-def _render_text(b):
+def _render_text(b: bytes) -> str:
     return "".join(chr(c) if (32 <= c < 127) else ("\n" if c in (10, 13) else ".")
                    for c in b)
 
@@ -249,7 +255,8 @@ class Handler(BaseHTTPRequestHandler):
                                "src": {}, "dst": {}})
                 device = data.get("device", "")
                 capture_obj.open(device, data.get("filter", ""))
-                print(f"[capture] 设备={device} 链路类型DLT={capture_obj.datalink} 过滤={data.get('filter', '') or '无'}")
+                log.info("抓包开始 设备=%s 链路类型DLT=%s 过滤=%s",
+                         device, capture_obj.datalink, data.get('filter', '') or '无')
                 capture_obj.start(on_packet)
                 self._json({"ok": True, "device": device,
                             "filter": data.get("filter", "")})
@@ -271,11 +278,11 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = 8000
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    print(f"嗅探器已启动，浏览器打开 http://localhost:{port}")
+    log.info("嗅探器已启动，浏览器打开 http://localhost:%s", port)
     if os.name == "nt":
-        print("提示：抓包需要管理员权限（请以管理员身份运行）。")
+        log.info("提示：抓包需要管理员权限（请以管理员身份运行）。")
     else:
-        print("提示：抓包需要 root / CAP_NET_RAW 权限，请用 sudo 运行。")
+        log.info("提示：抓包需要 root / CAP_NET_RAW 权限，请用 sudo 运行。")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

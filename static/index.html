@@ -1,156 +1,179 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>网络嗅探器 · Sniffer v4</title>
+<title>网络嗅探器 · Sniffer v5</title>
 <style>
+  html{font-size:62.5%} /* 1rem = 10px，配合字号缩放控件联动 */
   :root{
+    --mono:Consolas,"Cascadia Mono",ui-monospace,monospace;
+    /* 暗色（默认） */
     --bg:#1a1d24; --panel:#21252e; --panel2:#292e3a; --border:#343b49;
     --text:#d8dce4; --muted:#8b93a3; --accent:#c9a05c; --accent-dim:#c9a05c22;
-    --mono:Consolas,"Cascadia Mono",ui-monospace,monospace;
+    --row-hover:#242a35; --row-sel:#2d3545; --row-even:#1b1f27; --row-border:#1e232c;
+    --topbar-a:#232733; --topbar-b:#1f232c; --statusbar-bg:#171a21;
+    --panehead-a:#262b36; --panehead-b:#21252e; --divider-bar:#39404f;
+    --hex-hx:#9db8d4; --hex-asc:#8fb89a;
+    --chart-bg:#1b1f28; --chart-stripe:#20252f; --chart-text:#a9b0bd;
+    --chart-text-strong:#d5dae3; --chart-grid:#2b3140; --chart-muted:#6d7583; --chart-inner:#21252e;
+  }
+  [data-theme="light"]{
+    --bg:#f5f6f8; --panel:#ffffff; --panel2:#eef0f4; --border:#d6dae2;
+    --text:#1f242e; --muted:#6b7280; --accent:#b0761e; --accent-dim:#b0761e1c;
+    --row-hover:#eef1f6; --row-sel:#e3eaf5; --row-even:#f8f9fb; --row-border:#edf0f5;
+    --topbar-a:#ffffff; --topbar-b:#f1f3f7; --statusbar-bg:#eef0f4;
+    --panehead-a:#f6f7f9; --panehead-b:#edeff3; --divider-bar:#c3cad5;
+    --hex-hx:#1f5fb0; --hex-asc:#1c7a3d;
+    --chart-bg:#ffffff; --chart-stripe:#f2f4f8; --chart-text:#6b7280;
+    --chart-text-strong:#1f242e; --chart-grid:#e2e6ec; --chart-muted:#8b93a3; --chart-inner:#ffffff;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{background:var(--bg);color:var(--text);
-       font:13px/1.55 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+       font:1.5rem/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
        display:flex;flex-direction:column;overflow:hidden}
   /* 顶栏 */
-  .topbar{display:flex;align-items:center;gap:12px;padding:9px 16px;
-          background:linear-gradient(180deg,#232733,#1f232c);
+  .topbar{display:flex;align-items:center;gap:12px;padding:10px 16px;
+          background:linear-gradient(180deg,var(--topbar-a),var(--topbar-b));
           border-bottom:1px solid var(--border);flex-wrap:wrap;
-          box-shadow:0 1px 8px rgba(0,0,0,.25)}
-  .title{font-size:14px;font-weight:650;color:#eef0f5;letter-spacing:.3px;white-space:nowrap}
-  .title small{color:var(--muted);font-weight:400;font-size:11px;margin-left:7px;letter-spacing:.5px}
-  .sep{width:1px;height:22px;background:var(--border)}
+          box-shadow:0 1px 8px rgba(0,0,0,.15)}
+  .title{font-size:1.6rem;font-weight:650;color:var(--text);letter-spacing:.3px;white-space:nowrap}
+  .title small{color:var(--muted);font-weight:400;font-size:1.2rem;margin-left:7px;letter-spacing:.5px}
+  .sep{width:1px;height:24px;background:var(--border)}
   .field{display:flex;align-items:center;gap:6px}
-  .field label{color:var(--muted);font-size:12px;white-space:nowrap}
+  .field label{color:var(--muted);font-size:1.35rem;white-space:nowrap}
   select,input[type=text],button{background:var(--panel2);color:var(--text);
-    border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12.5px;font-family:inherit;
+    border:1px solid var(--border);border-radius:6px;padding:6px 11px;font-size:1.4rem;font-family:inherit;
     transition:border-color .15s,background .15s}
   select:focus,input:focus{outline:none;border-color:var(--accent)}
   button{cursor:pointer;white-space:nowrap}
-  button:hover{border-color:var(--accent);color:#fff}
+  button:hover{border-color:var(--accent);color:var(--text)}
   button:disabled{opacity:.38;cursor:not-allowed}
   button.primary{background:linear-gradient(180deg,#d6ae64,#c09448);color:#1b1d23;border-color:#a8833c;font-weight:600}
   button.primary:hover{opacity:.88;color:#1b1d23}
   button.primary:disabled{opacity:.38}
-  input[type=text]{min-width:130px}
-  input[type=text]#bpfFilter{min-width:200px}
-  input[type=text]#searchBox{min-width:150px}
+  input[type=text]{min-width:140px}
+  input[type=text]#bpfFilter{min-width:210px}
+  input[type=text]#searchBox{min-width:160px}
   input[type=checkbox]{accent-color:var(--accent)}
-  .autoscroll{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:12px;white-space:nowrap;cursor:pointer}
+  .autoscroll{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:1.35rem;white-space:nowrap;cursor:pointer}
   .clear-btn{padding:5px 8px;color:var(--muted)}
-  .clear-btn:hover{color:#fff;border-color:var(--accent)}
+  .clear-btn:hover{color:var(--text);border-color:var(--accent)}
   /* 状态栏 */
-  .statusbar{display:flex;align-items:center;gap:16px;padding:4px 16px;
-             background:#171a21;border-bottom:1px solid var(--border);color:var(--muted);font-size:12px}
-  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#555;margin-right:6px;transition:background .2s}
-  .dot.on{background:#58a26f;box-shadow:0 0 5px #58a26f88}
+  .statusbar{display:flex;align-items:center;gap:16px;padding:5px 16px;
+             background:var(--statusbar-bg);border-bottom:1px solid var(--border);color:var(--muted);font-size:1.3rem}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#9aa3af;margin-right:6px;transition:background .2s}
+  .dot.on{background:#3f9d5e;box-shadow:0 0 5px #3f9d5e88}
   .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
-  .drop-warn{color:#c96f6f}
-  /* 三栏：可拖拽，header 固定，body 独立滚动 */
+  .drop-warn{color:#c0504f}
+  /* 字号缩放 + 主题 */
+  .fs-ctl{display:flex;align-items:center;gap:4px}
+  .fs-ctl button{padding:2px 9px;font-size:1.3rem;font-weight:700;line-height:1.4}
+  .fs-ctl .fs-val{color:var(--text);font-size:1.2rem;min-width:44px;text-align:center}
+  #themeBtn{padding:2px 8px;font-size:1.3rem;line-height:1.4}
+  /* 三栏：可拖拽 */
   main.grid{flex:1;display:flex;flex-direction:column;min-height:0}
-  .pane{display:flex;flex-direction:column;overflow:hidden;min-height:70px;
+  .pane{display:flex;flex-direction:column;overflow:hidden;min-height:80px;
         border-bottom:1px solid var(--border);background:var(--bg)}
   #listPane{flex:56 1 0}
   #detailPane{flex:26 1 0}
   #hexPane{flex:18 1 0}
-  .divider{flex:0 0 5px;cursor:row-resize;background:transparent;position:relative;transition:background .15s}
+  .divider{flex:0 0 6px;cursor:row-resize;background:transparent;position:relative;transition:background .15s}
   .divider:hover,.divider.dragging{background:var(--accent-dim)}
   .divider::after{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-    width:30px;height:2px;border-radius:1px;background:#39404f}
+    width:30px;height:2px;border-radius:1px;background:var(--divider-bar)}
   .divider:hover::after{background:var(--accent)}
-  .pane-head{flex:0 0 auto;padding:5px 14px;font-size:11px;color:var(--muted);
-             background:linear-gradient(180deg,#262b36,#21252e);border-bottom:1px solid var(--border);letter-spacing:.5px;user-select:none;
-             display:flex;justify-content:space-between;align-items:center}
+  .pane-head{flex:0 0 auto;padding:6px 14px;font-size:1.25rem;color:var(--muted);
+             background:linear-gradient(180deg,var(--panehead-a),var(--panehead-b));border-bottom:1px solid var(--border);
+             letter-spacing:.5px;user-select:none;display:flex;justify-content:space-between;align-items:center}
   .pane-body{flex:1 1 auto;overflow:auto;min-height:0}
   /* 列表 */
-  table.pkt-table{width:100%;border-collapse:collapse;font-size:12px}
+  table.pkt-table{width:100%;border-collapse:collapse;font-size:1.35rem}
   table.pkt-table th{position:sticky;top:0;background:var(--panel);z-index:2;text-align:left;
-    padding:5px 12px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap;font-size:11px;
+    padding:6px 12px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap;font-size:1.25rem;
     text-transform:uppercase;letter-spacing:.4px}
-  table.pkt-table td{padding:3px 12px;border-bottom:1px solid #1e232c;white-space:nowrap;
-    overflow:hidden;text-overflow:ellipsis;max-width:300px;font-variant-numeric:tabular-nums}
-  table.pkt-table td.info{max-width:520px}
+  table.pkt-table td{padding:4px 12px;border-bottom:1px solid var(--row-border);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;max-width:320px;font-variant-numeric:tabular-nums}
+  table.pkt-table td.info{max-width:540px}
   table.pkt-table tbody tr{cursor:pointer;transition:background .08s}
-  table.pkt-table tbody tr:hover{background:#242a35}
-  table.pkt-table tbody tr.sel{background:#2d3545}
-  table.pkt-table tbody tr:nth-child(even):not(.sel):not(:hover){background:#1b1f27}
-  .proto-tag{display:inline-block;min-width:36px;text-align:center;padding:0 6px;border-radius:3px;
-    font-size:11px;font-weight:600;font-family:var(--mono)}
+  table.pkt-table tbody tr:hover{background:var(--row-hover)}
+  table.pkt-table tbody tr.sel{background:var(--row-sel)}
+  table.pkt-table tbody tr:nth-child(even):not(.sel):not(:hover){background:var(--row-even)}
+  .proto-tag{display:inline-block;min-width:40px;text-align:center;padding:0 7px;border-radius:3px;
+    font-size:1.2rem;font-weight:600;font-family:var(--mono)}
   /* 详情 */
   .detail-pane .pane-body{padding:8px 14px;background:var(--panel)}
-  .detail-meta{margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border);color:var(--muted);font-size:12.5px}
-  details{margin:4px 0;border-left:2px solid var(--accent);padding-left:10px}
-  details>summary{cursor:pointer;color:#eceef3;font-weight:600;font-size:12.5px;list-style:none;user-select:none}
-  details>summary::before{content:"▸";color:var(--muted);margin-right:5px;font-size:11px}
+  .detail-meta{margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border);color:var(--muted);font-size:1.4rem}
+  details{margin:5px 0;border-left:2px solid var(--accent);padding-left:10px}
+  details>summary{cursor:pointer;color:var(--text);font-weight:600;font-size:1.4rem;list-style:none;user-select:none}
+  details>summary::before{content:"▸";color:var(--muted);margin-right:5px;font-size:1.2rem}
   details[open]>summary::before{content:"▾"}
-  .field-table{margin:3px 0 7px 16px}
-  .field-row{display:flex;gap:14px;padding:1px 0}
-  .field-row .k{color:var(--muted);min-width:160px;font-size:12px}
+  .field-table{margin:3px 0 8px 16px}
+  .field-row{display:flex;gap:14px;padding:2px 0}
+  .field-row .k{color:var(--muted);min-width:170px;font-size:1.35rem}
   .field-row .v{color:var(--text);word-break:break-all;white-space:pre-wrap;
-    font-family:var(--mono);font-size:12px}
+    font-family:var(--mono);font-size:1.35rem}
   /* 十六进制 */
-  .hex-pane .pane-body{padding:8px 14px;background:var(--panel);font-family:var(--mono);font-size:12px}
+  .hex-pane .pane-body{padding:8px 14px;background:var(--panel);font-family:var(--mono);font-size:1.35rem}
   .hex-line{white-space:pre;line-height:1.5}
-  .hex-line .off{color:var(--muted);margin-right:16px;display:inline-block;min-width:38px}
-  .hex-line .hx{color:#9db8d4}
-  .hex-line .asc{color:#8fb89a;margin-left:16px}
+  .hex-line .off{color:var(--muted);margin-right:16px;display:inline-block;min-width:40px}
+  .hex-line .hx{color:var(--hex-hx)}
+  .hex-line .asc{color:var(--hex-asc);margin-left:16px}
   .hex-head{color:var(--muted);margin-bottom:3px;padding-bottom:3px;border-bottom:1px solid var(--border)}
   .trunc{color:var(--accent);margin-top:6px}
   .placeholder{color:var(--muted)}
   /* 弹窗 */
-  .modal{display:none;position:fixed;inset:0;background:rgba(10,12,16,.6);
+  .modal{display:none;position:fixed;inset:0;background:rgba(10,12,16,.55);
          align-items:center;justify-content:center;z-index:50}
-  .modal-box{width:min(960px,92vw);max-height:85vh;background:var(--panel);
+  .modal-box{width:min(980px,92vw);max-height:85vh;background:var(--panel);
              border:1px solid var(--border);border-radius:9px;display:flex;flex-direction:column;
-             box-shadow:0 14px 40px rgba(0,0,0,.5)}
+             box-shadow:0 14px 40px rgba(0,0,0,.35)}
   .modal-head{display:flex;justify-content:space-between;align-items:center;
-              padding:11px 16px;border-bottom:1px solid var(--border);font-weight:600}
-  .modal-head button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px}
-  .modal-head button:hover{color:#fff}
-  .modal-body{padding:14px 16px;overflow:auto}
+              padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:1.5rem;color:var(--text)}
+  .modal-head button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.7rem}
+  .modal-head button:hover{color:var(--text)}
+  .modal-body{padding:14px 16px;overflow:auto;font-size:1.35rem}
   .modal-body pre{white-space:pre-wrap;word-break:break-all;background:var(--panel2);
-    padding:10px;border-radius:5px;font-family:var(--mono);font-size:12px;max-height:280px;overflow:auto}
-  .flow-label{color:#eceef3;margin-bottom:8px;font-weight:600}
-  .flow-dir{color:var(--accent);margin:12px 0 4px;font-weight:600;font-size:12.5px}
-  .modal-body h4{margin:14px 0 6px;color:#eceef3;font-size:12.5px}
+    padding:10px;border-radius:5px;font-family:var(--mono);font-size:1.35rem;max-height:280px;overflow:auto}
+  .flow-label{color:var(--text);margin-bottom:8px;font-weight:600}
+  .flow-dir{color:var(--accent);margin:12px 0 4px;font-weight:600;font-size:1.4rem}
+  .modal-body h4{margin:14px 0 6px;color:var(--text);font-size:1.4rem}
   .empty-note{color:var(--muted);padding:8px 0}
-  table.proc-table{width:100%;border-collapse:collapse;font-size:12px}
-  table.proc-table th,table.proc-table td{padding:4px 10px;text-align:left;
+  table.proc-table{width:100%;border-collapse:collapse;font-size:1.35rem}
+  table.proc-table th,table.proc-table td{padding:5px 10px;text-align:left;
     border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums}
-  table.proc-table th{color:var(--muted);font-weight:600;font-size:11.5px}
-  table.proc-table tbody tr:hover{background:#242a35}
+  table.proc-table th{color:var(--muted);font-weight:600;font-size:1.25rem}
+  table.proc-table tbody tr:hover{background:var(--row-hover)}
   table.proc-table tbody tr{cursor:pointer}
-  table.proc-table td a,table.proc-table td button{color:var(--accent);background:none;border:none;padding:0;font-size:12px}
+  table.proc-table td button{color:var(--accent);background:none;border:none;padding:0;font-size:1.35rem}
   table.proc-table td button:hover{text-decoration:underline}
-  .stat-cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:6px}
-  .stat-card{background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:10px 16px;min-width:120px}
-  .stat-card .num{font-size:20px;font-weight:700;color:#eceef3;font-family:var(--mono)}
-  .stat-card .lbl{font-size:11px;color:var(--muted);margin-top:2px}
+  .stat-cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+  .stat-card{background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:12px 18px;min-width:130px}
+  .stat-card .num{font-size:2.4rem;font-weight:700;color:var(--text);font-family:var(--mono)}
+  .stat-card .lbl{font-size:1.25rem;color:var(--muted);margin-top:2px}
   .charts-row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
-  .chart-box{flex:1 1 320px;min-width:280px}
+  .chart-box{flex:1 1 340px;min-width:300px}
   /* 协议图例 */
   .legend{display:flex;gap:10px}
-  .lg-item{display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--muted)}
-  .lg-item i{width:8px;height:8px;border-radius:2px;display:inline-block}
+  .lg-item{display:flex;align-items:center;gap:5px;font-size:1.2rem;color:var(--muted)}
+  .lg-item i{width:9px;height:9px;border-radius:2px;display:inline-block}
   /* 滚动条 */
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-track{background:transparent}
-  ::-webkit-scrollbar-thumb{background:#333a47;border-radius:5px;border:2px solid transparent;background-clip:content-box}
-  ::-webkit-scrollbar-thumb:hover{background:#434c5d;background-clip:content-box}
+  ::-webkit-scrollbar-thumb{background:#b3bac5;border-radius:5px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#9aa3af}
   /* 按钮按压反馈 */
   button:active{transform:translateY(0.5px)}
   /* 顶部强调条 */
-  .accent-bar{flex:0 0 auto;height:2px;background:linear-gradient(90deg,#c9a05c,#c9a05c66 45%,transparent)}
-  .kbd-hint{font-size:10.5px;color:#5a6273}
+  .accent-bar{flex:0 0 auto;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent-dim) 45%,transparent)}
+  .kbd-hint{font-size:1.15rem;color:var(--muted)}
 </style>
 </head>
 <body>
   <div class="accent-bar"></div>
   <header class="topbar">
-    <div class="title"><svg width="16" height="16" viewBox="0 0 16 16" style="vertical-align:-2px;margin-right:7px"><rect x="1" y="1" width="14" height="14" rx="3.5" fill="none" stroke="#c9a05c" stroke-width="1.6"/><circle cx="8" cy="8" r="3" fill="#c9a05c"/></svg>网络嗅探器<small>PACKET SNIFFER</small></div>
+    <div class="title"><svg width="17" height="17" viewBox="0 0 16 16" style="vertical-align:-2px;margin-right:7px"><rect x="1" y="1" width="14" height="14" rx="3.5" fill="none" stroke="#b0761e" stroke-width="1.6"/><circle cx="8" cy="8" r="3" fill="#b0761e"/></svg>网络嗅探器<small>PACKET SNIFFER</small></div>
     <div class="sep"></div>
     <div class="field"><label>网卡</label><select id="device" title="选择网卡"></select></div>
     <button id="startBtn" class="primary" onclick="startCapture()">开始</button>
@@ -161,11 +184,13 @@
       <option value="ALL">全部协议</option>
       <option value="TCP">TCP</option>
       <option value="UDP">UDP</option>
+      <option value="ICMP">ICMP</option>
+      <option value="ICMPv6">ICMPv6</option>
+      <option value="ARP">ARP</option>
       <option value="HTTP">HTTP</option>
       <option value="DNS">DNS</option>
       <option value="TLS">TLS</option>
-      <option value="ICMP">ICMP</option>
-      <option value="ARP">ARP</option>
+      <option value="DHCP">DHCP</option>
     </select></div>
     <div class="field"><label>搜索</label><input id="searchBox" type="text" placeholder="IP/端口/协议/关键字" oninput="applyFilters()" title="按 IP、端口、协议、摘要关键字过滤（快捷键 / 聚焦）"></div>
     <div class="sep"></div>
@@ -184,8 +209,14 @@
     <span id="dropStat" class="drop-warn"></span>
     <span id="devInfo" class="mono"></span>
     <span id="filterHint" style="color:var(--accent)"></span>
+    <span class="fs-ctl">
+      <button onclick="adjustFont(-1)" title="缩小字号">A−</button>
+      <span id="fsVal" class="fs-val mono">100%</span>
+      <button onclick="adjustFont(1)" title="放大字号">A+</button>
+    </span>
+    <button id="themeBtn" onclick="toggleTheme()" title="切换亮色/暗色主题">🌙</button>
     <span class="kbd-hint" style="margin-left:auto">空格 开始/停止 · ↑↓ 切换包 · / 搜索</span>
-    <span style="background:#c9a05c;color:#1b1d23;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700">v4</span>
+    <span style="background:var(--accent);color:#fff;padding:1px 9px;border-radius:9px;font-size:1.15rem;font-weight:700">v5</span>
   </div>
 
   <main class="grid" id="grid">
@@ -225,7 +256,7 @@ let rateHistory=[];
 const MAX_PACKETS=5000, MAX_ROWS=600;
 
 const protoColors={HTTP:"#58a26f",TLS:"#c96f6f",TCP:"#5b8fc9",UDP:"#9a7bc4",
-  ICMP:"#6aa7bf",ICMPv6:"#6aa7bf",DNS:"#cf8a3f",ARP:"#8893a5",IPv6:"#8893a5",
+  ICMP:"#6aa7bf",ICMPv6:"#6aa7bf",DNS:"#cf8a3f",ARP:"#8893a5",IPv6:"#8893a5",DHCP:"#8a6fcf",
   "IPv4":"#8893a5","IP-1":"#8893a5","IP-6":"#8893a5","IP-17":"#8893a5"};
 
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
@@ -236,11 +267,34 @@ function fmtBytes(n){
   if(n<1048576)return (n/1024).toFixed(1)+" KB";
   return (n/1048576).toFixed(2)+" MB";
 }
+function cssVar(name){return getComputedStyle(document.documentElement).getPropertyValue(name).trim();}
 
 async function api(path,opts){
   const r=await fetch(path,opts);
   if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||r.statusText);}
   return r.json();
+}
+
+/* ---- 主题 ---- */
+let theme=localStorage.getItem("theme")||"light";
+function applyTheme(){
+  document.documentElement.setAttribute("data-theme", theme);
+  document.getElementById("themeBtn").textContent = theme==="light"?"🌙":"☀️";
+  localStorage.setItem("theme", theme);
+}
+function toggleTheme(){theme=theme==="light"?"dark":"light";applyTheme();}
+
+/* ---- 字号缩放 ---- */
+let fontScale=parseFloat(localStorage.getItem("fontScale")||"1");
+function applyFontScale(){
+  document.documentElement.style.fontSize=(62.5*fontScale)+"%";
+  document.getElementById("fsVal").textContent=Math.round(fontScale*100)+"%";
+  localStorage.setItem("fontScale", String(fontScale));
+}
+function adjustFont(d){
+  fontScale=Math.max(0.8,Math.min(1.6,Math.round((fontScale+d*0.1)*10)/10));
+  applyFontScale();
+  document.activeElement&&document.activeElement.blur&&document.activeElement.blur();
 }
 
 async function loadDevices(){
@@ -252,7 +306,6 @@ async function loadDevices(){
       o.textContent=d.description||d.name;
       sel.appendChild(o);
     });
-    // 恢复上次选择（localStorage 持久化）
     const saved=JSON.parse(localStorage.getItem("snifferPrefs")||"{}");
     if(saved.device && [...sel.options].some(o=>o.value===saved.device)) sel.value=saved.device;
     if(saved.filter) document.getElementById("bpfFilter").value=saved.filter;
@@ -270,9 +323,7 @@ function connectStream(){
 async function startCapture(){
   const device=document.getElementById("device").value;
   const filter=document.getElementById("bpfFilter").value.trim();
-  // 持久化本次选择
   localStorage.setItem("snifferPrefs", JSON.stringify({device, filter}));
-  // 清空前端状态
   firstTs=null;packets=[];packetMap.clear();selected=null;selectedRow=null;
   document.getElementById("packetBody").innerHTML="";
   document.getElementById("count").textContent="0";
@@ -361,7 +412,6 @@ function matchFilter(p){
   if(f&&f!=="ALL"){
     if(f==="TCP"){if(p.transport!=="TCP")return false;}
     else if(f==="UDP"){if(p.transport!=="UDP")return false;}
-    else if(f==="ICMP"){if((p.transport||"").indexOf("ICMP")!==0)return false;}
     else if(p.proto!==f)return false;
   }
   if(searchText){
@@ -387,7 +437,7 @@ function applyFilters(){
 }
 
 function buildLegend(){
-  const order=["HTTP","TCP","UDP","DNS","TLS","ICMP","ARP"];
+  const order=["HTTP","TCP","UDP","DNS","TLS","DHCP","ICMP","ICMPv6","ARP"];
   document.getElementById("legend").innerHTML=
     order.map(k=>`<span class="lg-item"><i style="background:${protoColors[k]}"></i>${k}</span>`).join("");
 }
@@ -494,54 +544,88 @@ function downloadFlow(key){
   document.body.appendChild(a);a.click();a.remove();
 }
 
+function flowsTableHtml(flows){
+  if(!flows.length)return '<div class="empty-note">暂无捕获到的 TCP 会话。</div>';
+  let html=`<table class="proc-table"><tr><th>#</th><th>源端点</th><th>目的端点</th><th>包数</th><th>字节</th><th>时长(s)</th><th></th></tr>`;
+  flows.forEach((f,i)=>{
+    const dur=(f.last_ts-f.first_ts).toFixed(3);
+    html+=`<tr onclick="followStreamByKey('${f.key}')">`
+      +`<td class="mono">${i+1}</td><td class="mono">${esc(f.src)}</td><td class="mono">${esc(f.dst)}</td>`
+      +`<td class="mono">${f.packets}</td><td class="mono">${fmtBytes(f.bytes)}</td><td class="mono">${dur}</td>`
+      +`<td><button onclick="event.stopPropagation();downloadFlow('${f.key}')">导出</button></td></tr>`;
+  });
+  html+=`</table><div class="empty-note" style="margin-top:6px">点击任意一行查看该流的时序图与内容。</div>`;
+  return html;
+}
+
 async function showFlows(){
   try{
     const r=await api("/flows");
     const flows=r.flows||[];
     let html=`<div style="margin-bottom:8px">共 <b class="mono">${flows.length}</b> 条 TCP 会话</div>`;
-    if(!flows.length){html+=`<div class="empty-note">暂无捕获到的 TCP 会话。</div>`;}
-    else{
-      html+=`<table class="proc-table"><tr><th>#</th><th>源端点</th><th>目的端点</th><th>包数</th><th>字节</th><th>时长(s)</th><th></th></tr>`;
-      flows.forEach((f,i)=>{
-        const dur=(f.last_ts-f.first_ts).toFixed(3);
-        html+=`<tr onclick="followStreamByKey('${f.key}')">`
-          +`<td class="mono">${i+1}</td><td class="mono">${esc(f.src)}</td><td class="mono">${esc(f.dst)}</td>`
-          +`<td class="mono">${f.packets}</td><td class="mono">${fmtBytes(f.bytes)}</td><td class="mono">${dur}</td>`
-          +`<td><button onclick="event.stopPropagation();downloadFlow('${f.key}')">导出</button></td></tr>`;
-      });
-      html+=`</table><div class="empty-note" style="margin-top:6px">点击任意一行查看该流的时序图与内容。</div>`;
-    }
+    html+=flowsTableHtml(flows);
     openModal("TCP 会话流",html);
   }catch(e){alert("获取会话失败："+e.message);}
 }
 
+async function showProcesses(){
+  try{
+    const r=await api("/processes");
+    const conns=r.connections||[];
+    let html=`<div style="margin-bottom:8px">共 <b class="mono">${conns.length}</b> 条连接</div>`;
+    if(!conns.length){html+='<div class="empty-note">未发现带网络连接的本机进程。</div>';}
+    else{
+      html+=`<table class="proc-table"><tr><th>进程</th><th>PID</th><th>本地地址</th><th>远端地址</th><th>状态</th><th></th></tr>`;
+      conns.forEach(c=>{
+        html+=`<tr><td>${esc(c.name)}</td><td class="mono">${c.pid}</td>`
+          +`<td class="mono">${esc(c.local_ip)}:${c.local_port}</td><td class="mono">${esc(c.remote_ip)}:${c.remote_port}</td>`
+          +`<td class="mono">${esc(c.state||'')}</td>`
+          +`<td><button onclick="event.stopPropagation();showProcessFlows(${c.pid})" title="查看该进程产生的所有 TCP 流">查看流</button></td></tr>`;
+      });
+      html+=`</table><div class="empty-note" style="margin-top:6px">点击「查看流」查看某进程产生的所有 TCP 流（加分项）。</div>`;
+    }
+    openModal("进程 → 连接映射",html);
+  }catch(e){alert("获取进程信息失败："+e.message);}
+}
+
+async function showProcessFlows(pid){
+  try{
+    const r=await api("/process/"+pid+"/flows");
+    const flows=r.flows||[];
+    let html=`<div style="margin-bottom:8px">进程 <b class="mono">PID ${pid}</b> 产生的 TCP 流：共 <b class="mono">${flows.length}</b> 条</div>`;
+    html+=flowsTableHtml(flows);
+    openModal("进程 " + pid + " 的流", html);
+  }catch(e){alert("获取进程流失败："+e.message);}
+}
+
 function renderFlowDiagram(segments,t0){
+  const C={bg:cssVar('--chart-bg'),stripe:cssVar('--chart-stripe'),text:cssVar('--chart-text'),
+           strong:cssVar('--chart-text-strong'),grid:cssVar('--chart-grid'),muted:cssVar('--chart-muted')};
   const MAX=60;
   const shown=segments.slice(0,MAX);
-  const rowH=30, leftX=150, rightX=480, w=640;
-  const top=74;
+  const rowH=34, leftX=150, rightX=480, w=640;
+  const top=80;
   const h=top+shown.length*rowH+16;
   let svg=`<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="display:block">`;
-  svg+=`<rect x="0" y="0" width="${w}" height="${h}" rx="7" fill="#1b1f28"/>`;
-  shown.forEach((s,i)=>{if(i%2===0)svg+=`<rect x="0" y="${top+i*rowH+2}" width="${w}" height="${rowH-4}" fill="#20252f"/>`;});
-  svg+=`<g font-size="11" fill="#a9b0bd">`
-    +`<circle cx="16" cy="13" r="4" fill="#d9a44a"/><text x="26" y="17">握手(SYN)</text>`
-    +`<circle cx="122" cy="13" r="4" fill="#5b8fc9"/><text x="132" y="17">正向</text>`
-    +`<circle cx="196" cy="13" r="4" fill="#58a26f"/><text x="206" y="17">反向</text>`
+  svg+=`<rect x="0" y="0" width="${w}" height="${h}" rx="7" fill="${C.bg}"/>`;
+  shown.forEach((s,i)=>{if(i%2===0)svg+=`<rect x="0" y="${top+i*rowH+2}" width="${w}" height="${rowH-4}" fill="${C.stripe}"/>`;});
+  svg+=`<g font-size="12" fill="${C.text}">`
+    +`<circle cx="18" cy="14" r="4" fill="#d9a44a"/><text x="28" y="18">握手(SYN)</text>`
+    +`<circle cx="128" cy="14" r="4" fill="#5b8fc9"/><text x="138" y="18">正向</text>`
+    +`<circle cx="202" cy="14" r="4" fill="#58a26f"/><text x="212" y="18">反向</text>`
     +`</g>`;
-  svg+=`<line x1="12" y1="28" x2="${w-12}" y2="28" stroke="#2b3140" stroke-width="1"/>`;
-  svg+=`<text x="${leftX}" y="48" fill="#d5dae3" font-size="11.5" font-weight="600" text-anchor="middle">客户端</text>`;
-  svg+=`<text x="${rightX}" y="48" fill="#d5dae3" font-size="11.5" font-weight="600" text-anchor="middle">服务器</text>`;
-  svg+=`<circle cx="${leftX}" cy="60" r="4" fill="#5b8fc9"/>`;
-  svg+=`<circle cx="${rightX}" cy="60" r="4" fill="#58a26f"/>`;
+  svg+=`<line x1="12" y1="30" x2="${w-12}" y2="30" stroke="${C.grid}" stroke-width="1"/>`;
+  svg+=`<text x="${leftX}" y="52" fill="${C.strong}" font-size="12.5" font-weight="600" text-anchor="middle">客户端</text>`;
+  svg+=`<text x="${rightX}" y="52" fill="${C.strong}" font-size="12.5" font-weight="600" text-anchor="middle">服务器</text>`;
+  svg+=`<circle cx="${leftX}" cy="64" r="4" fill="#5b8fc9"/>`;
+  svg+=`<circle cx="${rightX}" cy="64" r="4" fill="#58a26f"/>`;
   svg+=`<defs>`
-    +`<linearGradient id="ll" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6a7490"/><stop offset="1" stop-color="#39404f"/></linearGradient>`
     +`<marker id="aF" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#5b8fc9"/></marker>`
     +`<marker id="aR" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#58a26f"/></marker>`
     +`<marker id="aS" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#d9a44a"/></marker>`
     +`</defs>`;
-  svg+=`<line x1="${leftX}" y1="60" x2="${leftX}" y2="${h-10}" stroke="url(#ll)" stroke-width="1.5"/>`;
-  svg+=`<line x1="${rightX}" y1="60" x2="${rightX}" y2="${h-10}" stroke="url(#ll)" stroke-width="1.5"/>`;
+  svg+=`<line x1="${leftX}" y1="64" x2="${leftX}" y2="${h-10}" stroke="${C.grid}" stroke-width="1.5"/>`;
+  svg+=`<line x1="${rightX}" y1="64" x2="${rightX}" y2="${h-10}" stroke="${C.grid}" stroke-width="1.5"/>`;
   shown.forEach((s,i)=>{
     const y=top+12+i*rowH;
     const isSyn=/SYN/.test(s.flags||"");
@@ -553,26 +637,13 @@ function renderFlowDiagram(segments,t0){
     let label=(s.flags||"").trim();
     if(s.len>0)label+=(label?" ":"")+s.len+"B";
     if(label){
-      svg+=`<text x="${(leftX+rightX)/2}" y="${y-5}" fill="#d5dae3" font-size="9.5" text-anchor="middle" font-family="Consolas,monospace">${esc(label)}</text>`;
+      svg+=`<text x="${(leftX+rightX)/2}" y="${y-6}" fill="${C.strong}" font-size="10.5" text-anchor="middle" font-family="Consolas,monospace">${esc(label)}</text>`;
     }
-    svg+=`<text x="${leftX-14}" y="${y+3}" fill="#6d7583" font-size="9" text-anchor="end" font-family="Consolas,monospace">${((s.ts-t0)*1000).toFixed(1)}ms</text>`;
+    svg+=`<text x="${leftX-14}" y="${y+3}" fill="${C.muted}" font-size="10" text-anchor="end" font-family="Consolas,monospace">${((s.ts-t0)*1000).toFixed(1)}ms</text>`;
   });
   svg+=`</svg>`;
   if(segments.length>MAX)svg+=`<div class="trunc" style="margin-top:6px">仅显示前 ${MAX} 个段（共 ${segments.length} 个）</div>`;
   return svg;
-}
-
-async function showProcesses(){
-  try{
-    const r=await api("/processes");
-    let html='<table class="proc-table"><tr><th>进程</th><th>PID</th><th>IP:端口</th></tr>';
-    r.connections.forEach(c=>{
-      html+=`<tr><td>${esc(c.name)}</td><td class="mono">${c.pid}</td><td class="mono">${esc(c.ip)}:${c.port}</td></tr>`;
-    });
-    html+="</table>";
-    if(!r.connections.length)html+='<div class="empty-note">未发现带网络连接的本机进程。</div>';
-    openModal("进程 → 连接映射",html);
-  }catch(e){alert("获取进程信息失败："+e.message);}
 }
 
 async function showStats(){
@@ -588,7 +659,6 @@ async function showStats(){
     html+=`<div class="chart-box"><h4>协议分布</h4>`+pieChart(protos)+`</div>`;
     html+=`<div class="chart-box"><h4>抓包速率（最近 60s）</h4>`+rateChart(rateHistory)+`</div>`;
     html+=`</div>`;
-    // Top 端点
     const top=(o,c)=>Object.entries(o).sort((a,b)=>b[1]-a[1]).slice(0,c);
     html+=`<h4>Top 源端点</h4><table class="proc-table"><tr><th>端点</th><th>包数</th></tr>`;
     top(r.src||{},10).forEach(([k,v])=>{html+=`<tr><td class="mono">${esc(k)}</td><td class="mono">${v}</td></tr>`;});
@@ -600,6 +670,7 @@ async function showStats(){
 }
 
 function pieChart(protos){
+  const C={inner:cssVar('--chart-inner'),strong:cssVar('--chart-text-strong'),muted:cssVar('--chart-muted')};
   const entries=Object.entries(protos).sort((a,b)=>b[1]-a[1]);
   const total=entries.reduce((s,e)=>s+e[1],0);
   if(!total)return '<div class="empty-note">暂无数据</div>';
@@ -613,14 +684,14 @@ function pieChart(protos){
     const x1=cx+r*Math.cos(a1), y1=cy+r*Math.sin(a1);
     const large=frac>0.5?1:0;
     const c=protoColors[k]||"#8893a5";
-    svg+=`<path d="M ${cx} ${cy} L ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z" fill="${c}" stroke="#21252e" stroke-width="1"/>`;
+    svg+=`<path d="M ${cx} ${cy} L ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z" fill="${c}" stroke="${C.inner}" stroke-width="1"/>`;
     angle=a1;
   });
-  svg+=`<circle cx="${cx}" cy="${cy}" r="${inner}" fill="#21252e"/>`;
-  svg+=`<text x="${cx}" y="${cy-4}" fill="#eceef3" font-size="14" font-weight="700" text-anchor="middle">${total}</text>`;
-  svg+=`<text x="${cx}" y="${cy+12}" fill="#8b93a3" font-size="9" text-anchor="middle">包</text>`;
+  svg+=`<circle cx="${cx}" cy="${cy}" r="${inner}" fill="${C.inner}"/>`;
+  svg+=`<text x="${cx}" y="${cy-4}" fill="${C.strong}" font-size="16" font-weight="700" text-anchor="middle">${total}</text>`;
+  svg+=`<text x="${cx}" y="${cy+13}" fill="${C.muted}" font-size="10" text-anchor="middle">包</text>`;
   svg+=`</svg>`;
-  let legend='<div class="legend" style="flex-wrap:wrap;gap:8px;max-width:220px">';
+  let legend='<div class="legend" style="flex-wrap:wrap;gap:8px;max-width:230px">';
   entries.slice(0,10).forEach(([k,v])=>{
     const c=protoColors[k]||"#8893a5";
     legend+=`<span class="lg-item"><i style="background:${c}"></i>${esc(k)} ${(100*v/total).toFixed(1)}%</span>`;
@@ -630,6 +701,7 @@ function pieChart(protos){
 }
 
 function rateChart(hist){
+  const C={bg:cssVar('--chart-bg'),muted:cssVar('--chart-muted'),accent:cssVar('--accent')};
   if(!hist||hist.length<2)return '<div class="empty-note">速率数据采集中（每秒采样一次）…</div>';
   const w=560, h=120, pad=10;
   const max=Math.max(5,...hist);
@@ -637,12 +709,12 @@ function rateChart(hist){
   const pts=hist.map((v,i)=>[pad+i*(w-2*pad)/(n-1), h-pad-(v/max)*(h-2*pad)]);
   const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
   let svg=`<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}">`;
-  svg+=`<rect width="${w}" height="${h}" rx="6" fill="#1b1f28"/>`;
-  svg+=`<path d="${line}" fill="none" stroke="#c9a05c" stroke-width="1.6"/>`;
+  svg+=`<rect width="${w}" height="${h}" rx="6" fill="${C.bg}"/>`;
+  svg+=`<path d="${line}" fill="none" stroke="${C.accent}" stroke-width="1.6"/>`;
   const maxI=hist.indexOf(max);
-  svg+=`<circle cx="${pts[maxI][0].toFixed(1)}" cy="${pts[maxI][1].toFixed(1)}" r="2.5" fill="#c9a05c"/>`;
-  svg+=`<text x="${w-6}" y="${h-pad-2}" fill="#8b93a3" font-size="9" text-anchor="end">峰值 ${max} pkt/s</text>`;
-  svg+=`<text x="${pad}" y="${h-pad-2}" fill="#8b93a3" font-size="9">0</text>`;
+  svg+=`<circle cx="${pts[maxI][0].toFixed(1)}" cy="${pts[maxI][1].toFixed(1)}" r="2.5" fill="${C.accent}"/>`;
+  svg+=`<text x="${w-6}" y="${h-pad-2}" fill="${C.muted}" font-size="10" text-anchor="end">峰值 ${max} pkt/s</text>`;
+  svg+=`<text x="${pad}" y="${h-pad-2}" fill="${C.muted}" font-size="10">0</text>`;
   svg+=`</svg>`;
   return svg;
 }
@@ -679,7 +751,7 @@ function initResize(){
       const H=grid.clientHeight;
       const total=sizes[idx]+sizes[idx+1];
       const startY=e.clientY, start0=sizes[idx];
-      const minPct=70*total/H; // 每个 pane 至少 70px
+      const minPct=80*total/H;
       div.classList.add("dragging");
       function onMove(ev){
         const dPct=(ev.clientY-startY)*total/H;
@@ -715,8 +787,8 @@ setInterval(()=>{
   if(rateHistory.length>60)rateHistory.shift();
 },1000);
 
-console.log("sniffer-v4 已加载");
-loadDevices();connectStream();buildLegend();initResize();
+console.log("sniffer-v5 已加载");
+applyTheme();applyFontScale();loadDevices();connectStream();buildLegend();initResize();
 </script>
 </body>
 </html>

@@ -47,9 +47,15 @@ class bpf_program(Structure):
     _fields_ = [("bf_len", c_uint), ("bf_insns", c_void_p)]
 
 
+class pcap_stat(Structure):
+    _fields_ = [("ps_recv", c_uint), ("ps_drop", c_uint), ("ps_ifdrop", c_uint)]
+
+
 # ---------- 加载 libpcap（可能失败） ----------
 def _load_libpcap():
-    for name in ("libpcap.so", "libpcap.so.1", "libpcap.so.0.8", "libpcap.so.0.9"):
+    # Linux 用 libpcap.so，Windows 用 Npcap 的 wpcap.dll
+    for name in ("libpcap.so", "libpcap.so.1", "libpcap.so.0.8", "libpcap.so.0.9",
+                 "wpcap.dll", "npcap.dll"):
         try:
             return ctypes.CDLL(name)
         except OSError:
@@ -83,6 +89,8 @@ if HAS_LIBPCAP:
     _lib.pcap_dump_open.restype = c_void_p
     _lib.pcap_dump.argtypes = [c_void_p, POINTER(pcap_pkthdr), POINTER(c_ubyte)]
     _lib.pcap_dump_close.argtypes = [c_void_p]
+    _lib.pcap_stats.argtypes = [c_void_p, POINTER(pcap_stat)]
+    _lib.pcap_stats.restype = c_int
 
 
 class CaptureError(Exception):
@@ -100,12 +108,14 @@ def list_devices():
         p = alldevs
         while p:
             d = p.contents
-            devs.append({"name": d.name.decode() if d.name else "",
-                         "description": d.description.decode() if d.description else ""})
+            devs.append({"name": d.name.decode(errors="replace") if d.name else "",
+                         "description": d.description.decode(errors="replace") if d.description else ""})
             p = d.next
         _lib.pcap_freealldevs(alldevs)
         return devs
     else:
+        if os.name == "nt":
+            raise CaptureError("未找到 Npcap/wpcap.dll，请先安装 Npcap（安装时勾选 WinPcap 兼容模式）")
         if not os.path.isdir("/sys/class/net"):
             raise CaptureError("无法枚举网卡（无 libpcap 且 /sys/class/net 不存在）")
         return [{"name": n, "description": ""} for n in sorted(os.listdir("/sys/class/net"))]
@@ -258,6 +268,16 @@ class Capture:
             except OSError:
                 pass
             self._raw_sock = None
+
+    def stats(self):
+        """返回抓包统计 (received/dropped/if_dropped)；无 libpcap 或未打开时返回 None。"""
+        if not HAS_LIBPCAP or not self._handle:
+            return None
+        st = pcap_stat()
+        if _lib.pcap_stats(self._handle, byref(st)) != 0:
+            return None
+        return {"received": st.ps_recv, "dropped": st.ps_drop,
+                "if_dropped": st.ps_ifdrop}
 
     def save_pcap(self, path):
         """把本次会话已抓到的包导出成标准 pcap 文件"""

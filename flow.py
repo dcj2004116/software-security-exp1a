@@ -26,13 +26,20 @@ class FlowTracker:
             return
         if key not in self.flows:
             self.flows[key] = {
-                "label": pkt.get("flowlabel", key), "n": 0,
+                "label": pkt.get("flowlabel", key), "n": 0, "bytes": 0,
+                "first_ts": pkt.get("ts", 0.0), "last_ts": pkt.get("ts", 0.0),
                 "a": (pkt.get("src_ip", ""), sport),
                 "b": (pkt.get("dst_ip", ""), dport),
                 "dirs": {},
             }
         flow = self.flows[key]
         flow["n"] += 1
+        flow["bytes"] += len(pkt.get("payload") or b"")
+        ts = pkt.get("ts", 0.0)
+        if ts < flow["first_ts"]:
+            flow["first_ts"] = ts
+        if ts > flow["last_ts"]:
+            flow["last_ts"] = ts
         direction = (pkt.get("src_ip", ""), sport, pkt.get("dst_ip", ""), dport)
         d = flow["dirs"].setdefault(direction, {"segments": []})
         d["segments"].append({
@@ -94,6 +101,25 @@ class FlowTracker:
         return {"label": flow["label"], "packets": flow["n"],
                 "directions": out_dirs, "segments": segments}
 
+    def list(self):
+        """返回所有流的摘要，供前端「会话」面板展示。"""
+        out = []
+        for key, f in self.flows.items():
+            a_ip, a_port = f["a"]
+            b_ip, b_port = f["b"]
+            out.append({
+                "key": key,
+                "label": f["label"],
+                "src": f"{a_ip}:{a_port}",
+                "dst": f"{b_ip}:{b_port}",
+                "packets": f["n"],
+                "bytes": f["bytes"],
+                "first_ts": f["first_ts"],
+                "last_ts": f["last_ts"],
+            })
+        out.sort(key=lambda x: x["first_ts"])
+        return out
+
 
 # ---------- 进程 → 连接映射（Linux） ----------
 def _ipv4_from_hex(h):
@@ -126,7 +152,15 @@ def _parse_net_file(content, family):
 
 
 def get_process_map():
-    """返回 {(ip, port): (pid, 进程名)}，通过 /proc/net/tcp{,6} + /proc/*/fd 关联"""
+    """返回 {(ip, port): (pid, 进程名)}；Linux 用 /proc，Windows 用 netstat+tasklist"""
+    if os.path.isdir("/proc"):
+        return _get_process_map_linux()
+    if os.name == "nt":
+        return _get_process_map_windows()
+    return {}
+
+
+def _get_process_map_linux():
     inode_to_proc = {}
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
@@ -161,4 +195,52 @@ def get_process_map():
             proc = inode_to_proc.get(inode)
             if proc:
                 result[(ip, port)] = proc
+    return result
+
+
+def _get_process_map_windows():
+    import subprocess
+    result = {}
+    try:
+        pid_name = {}
+        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
+                             capture_output=True, text=True, timeout=10)
+        for line in out.stdout.splitlines():
+            parts = line.split('","')
+            if len(parts) < 2:
+                continue
+            name = parts[0].lstrip('"').strip()
+            try:
+                pid = int(parts[1].strip())
+            except ValueError:
+                continue
+            pid_name[pid] = name
+
+        out = subprocess.run(["netstat", "-ano"],
+                             capture_output=True, text=True, timeout=10)
+        for line in out.stdout.splitlines():
+            if "TCP" not in line and "UDP" not in line:
+                continue
+            parts = line.split()
+            if len(parts) < 5:
+                continue
+            local = parts[1]
+            try:
+                pid = int(parts[-1])
+            except ValueError:
+                continue
+            if ":" not in local:
+                continue
+            if local.startswith("["):
+                ip, port = local.rsplit("]:", 1)
+                ip = ip[1:]
+            else:
+                ip, port = local.rsplit(":", 1)
+            try:
+                port = int(port)
+            except ValueError:
+                continue
+            result[(ip, port)] = (pid, pid_name.get(pid, f"pid{pid}"))
+    except Exception:
+        pass
     return result

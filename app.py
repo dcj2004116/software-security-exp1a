@@ -30,29 +30,48 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 capture_obj = capture.Capture()
 tracker = F.FlowTracker()
 counter = {"n": 0}
+# 服务端全局统计（供 /stats 与前端图表使用，随 /start 重置）
+_stats = {"total": 0, "bytes": 0, "protos": {}, "src": {}, "dst": {}}
 
 # SSE 客户端队列列表
 _clients = []
 _clients_lock = threading.Lock()
 _process_cache = {"data": {}, "t": 0.0}
+_raw_cache = {}          # 包编号 -> 原始字节，供 /raw/{no} 按需取原始数据
+RAW_CACHE_MAX = 10000
 
 
 def to_json(pkt):
-    """去掉不可 JSON 序列化的 payload/raw，只保留前端需要的字段"""
+    """去掉 payload，保留原始字节前 256 字节的 hex 供前端直接显示"""
     d = {k: v for k, v in pkt.items() if k not in ("payload", "raw")}
     raw = pkt.get("raw", b"")
-    d["raw_hex"] = raw[:1024].hex()
-    d["raw_truncated"] = len(raw) > 1024
+    d["raw_hex"] = raw[:256].hex()
+    d["raw_truncated"] = len(raw) > 256
     return d
 
 
 def on_packet(raw, ts, caplen, length):
     counter["n"] += 1
-    pkt = P.parse(raw, ts, capture_obj.datalink, counter["n"], length)
-    if not capture_obj.using_libpcap and capture_obj.filter:
+    no = counter["n"]
+    pkt = P.parse(raw, ts, capture_obj.datalink, no, length)
+    # 用户态过滤仅用于「无 libpcap、原始套接字回退」的场景；
+    # 使用 libpcap 时内核已按 BPF 过滤，叠加用户态过滤会误伤复合表达式。
+    if capture_obj.filter and not capture_obj.using_libpcap:
         if not capture.filter_match(capture_obj.filter, pkt):
             return
+    _raw_cache[no] = raw
+    if len(_raw_cache) > RAW_CACHE_MAX:
+        _raw_cache.pop(next(iter(_raw_cache)))
     tracker.add(pkt)
+    # 更新服务端统计
+    _stats["total"] += 1
+    _stats["bytes"] += length
+    proto = pkt.get("proto", "Unknown")
+    _stats["protos"][proto] = _stats["protos"].get(proto, 0) + 1
+    if pkt.get("src"):
+        _stats["src"][pkt["src"]] = _stats["src"].get(pkt["src"], 0) + 1
+    if pkt.get("dst"):
+        _stats["dst"][pkt["dst"]] = _stats["dst"].get(pkt["dst"], 0) + 1
     j = json.dumps(to_json(pkt))
     with _clients_lock:
         snapshot = list(_clients)
@@ -80,6 +99,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
@@ -87,6 +107,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(content)
 
@@ -109,7 +130,27 @@ class Handler(BaseHTTPRequestHandler):
             except capture.CaptureError as e:
                 self._json({"error": str(e)}, 500)
         elif path == "/status":
-            self._json({"running": capture_obj.running, "count": counter["n"]})
+            st = capture_obj.stats()
+            self._json({"running": capture_obj.running, "count": counter["n"],
+                        "received": st.get("received", 0) if st else None,
+                        "dropped": st.get("dropped", 0) if st else None})
+        elif path == "/stats":
+            self._json(dict(_stats))
+        elif path == "/flows":
+            self._json({"flows": tracker.list()})
+        elif path.startswith("/raw/"):
+            try:
+                no = int(path[len("/raw/"):])
+            except ValueError:
+                self._json({"error": "bad packet number"}, 400)
+                return
+            raw = _raw_cache.get(no)
+            if raw is None:
+                self._json({"error": "packet not in cache"}, 404)
+            else:
+                self._json({"no": no, "len": len(raw),
+                            "raw_hex": raw[:1024].hex(),
+                            "truncated": len(raw) > 1024})
         elif path.startswith("/follow/"):
             key = unquote(path[len("/follow/"):])
             res = tracker.follow(key)
@@ -121,6 +162,26 @@ class Handler(BaseHTTPRequestHandler):
                                             "text": _render_text(d["bytes"])}
                                            for d in res["directions"]],
                             "segments": res["segments"]})
+        elif path.startswith("/export_flow/"):
+            key = unquote(path[len("/export_flow/"):])
+            res = tracker.follow(key)
+            if res is None:
+                self._json({"error": "flow not found"}, 404)
+            else:
+                lines = [f"# Follow TCP Stream: {res['label']}",
+                         f"# packets: {res['packets']}", ""]
+                for d in res["directions"]:
+                    lines.append(f"===== {d['direction']} =====")
+                    lines.append(_render_text(d["bytes"]))
+                    lines.append("")
+                body = "\n".join(lines).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Disposition",
+                                 'attachment; filename="flow.txt"')
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
         elif path == "/processes":
             now = time.time()
             if now - _process_cache["t"] > 3 or not _process_cache["data"]:
@@ -168,11 +229,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/start":
             try:
                 capture_obj.close()
-                counter["n"] = 0
                 tracker.reset()
-                capture_obj.open(data.get("device", ""), data.get("filter", ""))
+                _raw_cache.clear()
+                _stats.update({"total": 0, "bytes": 0, "protos": {},
+                               "src": {}, "dst": {}})
+                device = data.get("device", "")
+                capture_obj.open(device, data.get("filter", ""))
+                print(f"[capture] 设备={device} 链路类型DLT={capture_obj.datalink} 过滤={data.get('filter', '') or '无'}")
                 capture_obj.start(on_packet)
-                self._json({"ok": True, "device": data.get("device", ""),
+                self._json({"ok": True, "device": device,
                             "filter": data.get("filter", "")})
             except capture.CaptureError as e:
                 self._json({"error": str(e)}, 500)
@@ -193,7 +258,10 @@ if __name__ == "__main__":
     port = 8000
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     print(f"嗅探器已启动，浏览器打开 http://localhost:{port}")
-    print("提示：抓包需要 root / CAP_NET_RAW 权限，请用 sudo 运行。")
+    if os.name == "nt":
+        print("提示：抓包需要管理员权限（请以管理员身份运行）。")
+    else:
+        print("提示：抓包需要 root / CAP_NET_RAW 权限，请用 sudo 运行。")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

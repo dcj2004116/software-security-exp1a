@@ -97,7 +97,13 @@ def parse_ipv6(data):
                 break
             nh = rest[0]
             rest = rest[8:]
-        else:                              # 长度字段在第 1 字节，单位 8 字节组
+        elif nh == 51:                     # AH：长度 = (payload_len + 2) * 4 字节
+            ext_len = (rest[1] + 2) * 4
+            nh = rest[0]
+            if len(rest) < ext_len:
+                break
+            rest = rest[ext_len:]
+        else:                              # 逐跳0/路由43/目的选项60：单位 8 字节组
             ext_len = (rest[1] + 1) * 8
             nh = rest[0]
             if len(rest) < ext_len:
@@ -174,7 +180,11 @@ def parse_http(data):
         line, rest = _first_line(data)
         hdr_end = rest.find(b"\r\n\r\n")
         headers = rest[:hdr_end].decode(errors="replace") if hdr_end >= 0 else ""
-        return {"name": "HTTP", "fields": {"Response": line, "Headers": headers}}, data
+        fields = {"Response": line, "Headers": headers}
+        parts = line.split(" ", 2)
+        if len(parts) >= 2 and parts[1].isdigit():
+            fields["Status Code"] = int(parts[1])
+        return {"name": "HTTP", "fields": fields}, data
     for m in HTTP_METHODS:
         if data.startswith(m):
             line, rest = _first_line(data)
@@ -212,6 +222,56 @@ def parse_dns(data):
     return {"name": "DNS", "fields": fields}, data[12:]
 
 
+def _tls_sni(data):
+    """从 TLS ClientHello 报文里提取 SNI 域名（Server Name Indication）。
+
+    data 以 TLS Record 头（ContentType=22 Handshake）开始。逐字段解析
+    ClientHello：跳过版本/随机数/会话ID/密码套件/压缩方法，进入扩展区，
+    找到 type=0(server_name) 的扩展，读出 host_name 类型的域名。
+    只处理单条 Record 内的情况（覆盖绝大多数真实流量）。
+    """
+    try:
+        if len(data) < 9 or data[0] != 22:
+            return None
+        pos = 5                          # 跳过 Record 头：type(1)+version(2)+length(2)
+        if data[pos] != 1:               # 必须为 ClientHello
+            return None
+        pos += 4                         # 跳过 Handshake 头：type(1)+length(3)
+        if pos + 34 > len(data):
+            return None
+        pos += 2                         # client_version
+        pos += 32                        # random
+        slen = data[pos]                 # session_id 长度
+        pos += 1 + slen
+        if pos + 2 > len(data):
+            return None
+        clen = int.from_bytes(data[pos:pos + 2], "big")   # cipher_suites 长度
+        pos += 2 + clen
+        if pos + 1 > len(data):
+            return None
+        mlen = data[pos]                 # compression_methods 长度
+        pos += 1 + mlen
+        if pos + 2 > len(data):
+            return None
+        elen = int.from_bytes(data[pos:pos + 2], "big")   # extensions 总长
+        pos += 2
+        end = min(pos + elen, len(data))
+        while pos + 4 <= end:
+            etype = int.from_bytes(data[pos:pos + 2], "big")
+            extlen = int.from_bytes(data[pos + 2:pos + 4], "big")
+            pos += 4
+            if etype == 0 and pos + 5 <= end:             # server_name 扩展
+                npos = pos + 2                            # 跳过 list 总长(2)
+                if npos < end and data[npos] == 0:        # 0 = host_name
+                    nlen = int.from_bytes(data[npos + 1:npos + 3], "big")
+                    name = data[npos + 3:npos + 3 + nlen]
+                    return name.decode("utf-8", errors="replace") or None
+            pos += extlen
+        return None
+    except Exception:
+        return None
+
+
 def parse_tls(data):
     if len(data) < 3:
         return None, data
@@ -225,8 +285,14 @@ def parse_tls(data):
     if ctype == 22 and len(data) >= 6:
         htype = data[5]
         hn = {1: "ClientHello", 2: "ServerHello", 11: "Certificate",
-              16: "ClientKeyExchange", 14: "ServerHelloDone"}
+              12: "ServerKeyExchange", 13: "CertificateRequest",
+              14: "ServerHelloDone", 15: "CertificateVerify",
+              16: "ClientKeyExchange", 20: "Finished"}
         fields["Handshake Type"] = f"{htype} ({hn.get(htype, '')})"
+        if htype == 1:                   # ClientHello：尝试提取 SNI
+            sni = _tls_sni(data)
+            if sni:
+                fields["Server Name (SNI)"] = sni
     return {"name": "TLS", "fields": fields}, data
 
 
@@ -290,6 +356,13 @@ def _handle_transport(layer, rest, ports, layers, pkt, is_tcp):
         if app == "HTTP":
             pkt["summary"] = (app_layer["fields"].get("Request")
                               or app_layer["fields"].get("Response") or "HTTP")
+        elif app == "TLS":
+            sni = app_layer["fields"].get("Server Name (SNI)")
+            if sni:
+                pkt["summary"] = f"TLS ClientHello → {sni}"
+            else:
+                pkt["summary"] = (f"{sport} → {dport} [{fl}] "
+                                  f"Seq={pkt['seq']} Ack={pkt['ack']} Len={len(rest)}")
         else:
             pkt["summary"] = (f"{sport} → {dport} [{fl}] "
                               f"Seq={pkt['seq']} Ack={pkt['ack']} Len={len(rest)}")
@@ -408,7 +481,7 @@ def parse(raw, ts, linktype=DLT_EN10MB, no=0, length=None):
             data = data[4:]
             if fam == 2:
                 _parse_ip(data, layers, pkt, v6=False)
-            elif fam in (10, 24, 28, 30):
+            elif fam in (10, 23, 24, 28, 30):   # IPv6: Linux=10 / Windows=23 / macOS=30
                 _parse_ip(data, layers, pkt, v6=True)
     elif linktype in (DLT_RAW, DLT_LINUX_SLL, DLT_LINUX_SLL2):
         if linktype in (DLT_LINUX_SLL, DLT_LINUX_SLL2) and len(data) >= 16:

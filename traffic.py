@@ -30,13 +30,10 @@ def _http_request():
 def main():
     threading.Thread(target=_serve, daemon=True).start()
     time.sleep(0.5)
-    print("开始生成 HTTP 测试流量（127.0.0.1:8080）...")
-    for _ in range(10):
-        _http_request()
-        time.sleep(0.3)
-    print("已生成 10 次 HTTP 请求。HTTP 服务保持运行，Ctrl+C 退出。")
+    print("开始持续生成 HTTP 测试流量（127.0.0.1:8080，每秒 1 次，Ctrl+C 停止）...")
     try:
         while True:
+            _http_request()
             time.sleep(1)
     except KeyboardInterrupt:
         pass

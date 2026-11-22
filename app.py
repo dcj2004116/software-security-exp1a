@@ -37,8 +37,17 @@ _stats = {"total": 0, "bytes": 0, "protos": {}, "src": {}, "dst": {}}
 _clients = []
 _clients_lock = threading.Lock()
 _process_cache = {"data": {}, "t": 0.0}
+_conn_cache = {"data": [], "t": 0.0}
 _raw_cache = {}          # 包编号 -> 原始字节，供 /raw/{no} 按需取原始数据
 RAW_CACHE_MAX = 10000
+
+
+def _cached_connections():
+    now = time.time()
+    if now - _conn_cache["t"] > 3 or not _conn_cache["data"]:
+        _conn_cache["data"] = F.get_process_connections()
+        _conn_cache["t"] = now
+    return _conn_cache["data"]
 
 
 def to_json(pkt):
@@ -183,13 +192,18 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
         elif path == "/processes":
-            now = time.time()
-            if now - _process_cache["t"] > 3 or not _process_cache["data"]:
-                _process_cache["data"] = F.get_process_map()
-                _process_cache["t"] = now
-            conns = [{"ip": ip, "port": port, "pid": pid, "name": name}
-                     for (ip, port), (pid, name) in _process_cache["data"].items()]
-            self._json({"connections": conns})
+            self._json({"connections": _cached_connections()})
+        elif path.startswith("/process/"):
+            # /process/<pid>/flows —— 某进程产生的所有 TCP 流（加分项）
+            parts = path.split("/")
+            if len(parts) == 4 and parts[2].isdigit() and parts[3] == "flows":
+                pid = int(parts[2])
+                conns = [c for c in _cached_connections() if c["pid"] == pid]
+                keys = tracker.flows_for_connections(conns)
+                flows = [f for f in tracker.list() if f["key"] in keys]
+                self._json({"pid": pid, "connections": conns, "flows": flows})
+            else:
+                self._json({"error": "not found"}, 404)
         elif path == "/stream":
             self._stream()
         else:

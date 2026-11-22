@@ -272,6 +272,58 @@ def _tls_sni(data):
         return None
 
 
+def parse_dhcp(data):
+    """解析 DHCP 报文（UDP 67/68）。RFC 2131。"""
+    if len(data) < 240:
+        return None, data
+    op, htype, hlen, hops = struct.unpack("!BBBB", data[:4])
+    xid = int.from_bytes(data[4:8], "big")
+    ciaddr = _ipv4(data[12:16])
+    yiaddr = _ipv4(data[16:20])
+    siaddr = _ipv4(data[20:24])
+    giaddr = _ipv4(data[24:28])
+    chaddr = data[28:44]
+    if data[236:240] != b"\x63\x82\x53\x63":   # magic cookie
+        return None, data
+    opname = {1: "BOOTREQUEST", 2: "BOOTREPLY"}.get(op, str(op))
+    fields = {
+        "Operation": f"{op} ({opname})",
+        "Hardware Type": htype, "Hardware Length": hlen,
+        "Transaction ID": f"0x{xid:08x}",
+        "Client IP": ciaddr, "Your IP": yiaddr,
+        "Server IP": siaddr, "Relay Agent IP": giaddr,
+        "Client MAC": _mac(chaddr[:hlen]),
+    }
+    # 解析 options（type-length-value，以 0xff End 结束）
+    opts = data[240:]
+    i = 0
+    while i < len(opts):
+        code = opts[i]
+        if code == 255:
+            break
+        if code == 0:                     # Pad
+            i += 1
+            continue
+        if i + 1 >= len(opts):
+            break
+        ln = opts[i + 1]
+        val = opts[i + 2:i + 2 + ln]
+        if code == 53 and ln >= 1:
+            mt = {1: "DISCOVER", 2: "OFFER", 3: "REQUEST", 4: "DECLINE",
+                  5: "ACK", 6: "NAK", 7: "RELEASE", 8: "INFORM"}.get(val[0], str(val[0]))
+            fields["Message Type"] = f"{val[0]} ({mt})"
+        elif code == 12:
+            fields["Host Name"] = val.decode(errors="replace")
+        elif code == 50 and ln == 4:
+            fields["Requested IP"] = _ipv4(val)
+        elif code == 54 and ln == 4:
+            fields["DHCP Server"] = _ipv4(val)
+        elif code == 51 and ln == 4:
+            fields["Lease Time"] = f"{int.from_bytes(val, 'big')}s"
+        i += 2 + ln
+    return {"name": "DHCP", "fields": fields}, data
+
+
 def parse_tls(data):
     if len(data) < 3:
         return None, data
@@ -310,6 +362,10 @@ def _detect_app(sport, dport, payload):
         layer, _ = parse_dns(payload)
         if layer:
             return "DNS", layer
+    if sport in (67, 68) or dport in (67, 68):
+        layer, _ = parse_dhcp(payload)
+        if layer:
+            return "DHCP", layer
     layer, _ = parse_http(payload)
     if layer:
         return "HTTP", layer
@@ -375,6 +431,9 @@ def _handle_transport(layer, rest, ports, layers, pkt, is_tcp):
         if app == "DNS":
             q = app_layer["fields"].get("Query")
             pkt["summary"] = f"DNS query {q}" if q else "DNS"
+        elif app == "DHCP":
+            mt = app_layer["fields"].get("Message Type", "DHCP")
+            pkt["summary"] = f"DHCP {mt}"
         else:
             pkt["summary"] = f"{sport} → {dport} Len={len(rest)}"
 

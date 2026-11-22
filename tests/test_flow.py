@@ -82,6 +82,28 @@ class TestProcessMap(unittest.TestCase):
             self.assertIsInstance(pid, int)
             self.assertIsInstance(name, str)
 
+    def test_get_process_connections_returns_list(self):
+        conns = F.get_process_connections()
+        self.assertIsInstance(conns, list)
+        for c in conns[:3]:
+            for k in ("pid", "name", "proto", "local_ip", "local_port",
+                      "remote_ip", "remote_port"):
+                self.assertIn(k, c)
+
+
+class TestFlowsForConnections(unittest.TestCase):
+    def test_match_by_endpoint(self):
+        tracker = F.FlowTracker()
+        req = b"GET / HTTP/1.1\r\nHost: x\r\n\r\n"
+        p1 = P.parse(eth(0x0800, ipv4(6, tcp(40000, 8080, req, seq=1))), 1.0, 1, 1)
+        tracker.add(p1)
+        # 模拟进程的一条连接：本地 192.168.1.100:40000 -> 远端 192.168.1.1:8080
+        conns = [{"pid": 123, "name": "app", "proto": "TCP",
+                  "local_ip": "192.168.1.100", "local_port": 40000,
+                  "remote_ip": "192.168.1.1", "remote_port": 8080}]
+        keys = tracker.flows_for_connections(conns)
+        self.assertEqual(keys, {p1["flowkey"]})
+
 
 if __name__ == "__main__":
     unittest.main()

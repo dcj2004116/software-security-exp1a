@@ -95,6 +95,35 @@ class TestDNS(unittest.TestCase):
         self.assertEqual(layer["fields"]["Query Type"], 1)
 
 
+def _dhcp(msg_type=1, hostname=b"testhost"):
+    op = struct.pack("!BBBB", 1, 1, 6, 0)           # op/htype/hlen/hops
+    xid = struct.pack("!I", 0x12345678)
+    secs_flags = struct.pack("!HH", 0, 0)
+    zeros4 = b"\x00" * 4                             # ciaddr/yiaddr/siaddr/giaddr
+    chaddr = mac("aabbccddeeff") + b"\x00" * 10
+    sname = b"\x00" * 64
+    fname = b"\x00" * 128
+    magic = b"\x63\x82\x53\x63"
+    opts = b"\x35\x01" + bytes([msg_type])           # option 53 Message Type
+    opts += b"\x0c" + bytes([len(hostname)]) + hostname  # option 12 Host Name
+    opts += b"\xff"
+    return op + xid + secs_flags + zeros4 * 4 + chaddr + sname + fname + magic + opts
+
+
+class TestDHCP(unittest.TestCase):
+    def test_parse(self):
+        layer, _ = P.parse_dhcp(_dhcp(msg_type=1, hostname=b"testhost"))
+        self.assertEqual(layer["name"], "DHCP")
+        self.assertIn("DISCOVER", layer["fields"]["Message Type"])
+        self.assertEqual(layer["fields"]["Host Name"], "testhost")
+        self.assertEqual(layer["fields"]["Client MAC"], "aa:bb:cc:dd:ee:ff")
+
+    def test_full_pipeline(self):
+        p = P.parse(eth(0x0800, ipv4(17, udp(68, 67, _dhcp(msg_type=3, hostname=b"pc1")))), 1.0, 1, 1)
+        self.assertEqual(p["proto"], "DHCP")
+        self.assertIn("REQUEST", p["summary"])
+
+
 class TestTLS(unittest.TestCase):
     def _clienthello(self, sni=None):
         body = b"\x03\x03"                       # client_version

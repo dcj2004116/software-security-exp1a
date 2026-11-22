@@ -120,6 +120,24 @@ class FlowTracker:
         out.sort(key=lambda x: x["first_ts"])
         return out
 
+    def flows_for_connections(self, conns):
+        """返回与给定连接列表相关的流 key 集合。
+
+        conns 为 get_process_connections() 的元素，含 local_ip/port、remote_ip/port。
+        只要流的任一端点出现在这些连接中即视为该进程产生的流。
+        """
+        eps = set()
+        for c in conns:
+            eps.add((c.get("local_ip"), c.get("local_port")))
+            eps.add((c.get("remote_ip"), c.get("remote_port")))
+        keys = set()
+        for key, f in self.flows.items():
+            a_ip, a_port = f["a"]
+            b_ip, b_port = f["b"]
+            if (a_ip, a_port) in eps or (b_ip, b_port) in eps:
+                keys.add(key)
+        return keys
+
 
 # ---------- 进程 → 连接映射（Linux） ----------
 def _ipv4_from_hex(h):
@@ -244,3 +262,141 @@ def _get_process_map_windows():
     except Exception:
         pass
     return result
+
+
+# ---------- 进程 → 连接（含远端地址），用于「某进程产生的所有流」加分项 ----------
+def _tcp_state(h):
+    return {0x01: "ESTABLISHED", 0x02: "SYN_SENT", 0x03: "SYN_RECV",
+            0x04: "FIN_WAIT1", 0x05: "FIN_WAIT2", 0x06: "TIME_WAIT",
+            0x07: "CLOSE", 0x08: "CLOSE_WAIT", 0x09: "LAST_ACK",
+            0x0A: "LISTEN", 0x0B: "CLOSING"}.get(h, f"0x{h:02X}")
+
+
+def _split_addr(hexstr, v6):
+    ip_hex, port_hex = hexstr.rsplit(":", 1)
+    ip = _ipv6_from_hex(ip_hex) if v6 else _ipv4_from_hex(ip_hex)
+    return ip, int(port_hex, 16)
+
+
+def _build_inode_to_proc():
+    inode_to_proc = {}
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            fds = os.listdir(os.path.join("/proc", pid, "fd"))
+        except OSError:
+            continue
+        try:
+            with open(os.path.join("/proc", pid, "comm")) as f:
+                name = f.read().strip() or f"pid{pid}"
+        except OSError:
+            name = f"pid{pid}"
+        for fd in fds:
+            try:
+                target = os.readlink(os.path.join("/proc", pid, "fd", fd))
+            except OSError:
+                continue
+            m = re.match(r"socket:\[(\d+)\]", target)
+            if m:
+                inode_to_proc[int(m.group(1))] = (int(pid), name)
+    return inode_to_proc
+
+
+def _connections_linux():
+    inode_to_proc = _build_inode_to_proc()
+    conns = []
+    for family, path, v6 in ((4, "/proc/net/tcp", False), (6, "/proc/net/tcp6", True)):
+        try:
+            with open(path) as f:
+                content = f.read()
+        except OSError:
+            continue
+        for line in content.strip().split("\n")[1:]:
+            parts = line.split()
+            if len(parts) < 10:
+                continue
+            local, remote, state = parts[1], parts[2], parts[3]
+            try:
+                inode = int(parts[9])
+            except ValueError:
+                continue
+            proc = inode_to_proc.get(inode)
+            if not proc:
+                continue
+            try:
+                lip, lport = _split_addr(local, v6)
+                rip, rport = _split_addr(remote, v6)
+            except Exception:
+                continue
+            conns.append({"pid": proc[0], "name": proc[1], "proto": "TCP",
+                          "local_ip": lip, "local_port": lport,
+                          "remote_ip": rip, "remote_port": rport,
+                          "state": _tcp_state(int(state, 16))})
+    return conns
+
+
+def _connections_windows():
+    import subprocess
+    pid_name = {}
+    try:
+        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
+                             capture_output=True, text=True, timeout=10)
+        for line in out.stdout.splitlines():
+            parts = line.split('","')
+            if len(parts) < 2:
+                continue
+            name = parts[0].lstrip('"').strip()
+            try:
+                pid = int(parts[1].strip())
+            except ValueError:
+                continue
+            pid_name[pid] = name
+    except Exception:
+        pass
+
+    conns = []
+    try:
+        out = subprocess.run(["netstat", "-ano"],
+                             capture_output=True, text=True, timeout=10)
+        for line in out.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 5 or parts[0] not in ("TCP", "UDP"):
+                continue
+            proto = parts[0]
+            try:
+                pid = int(parts[-1])
+            except ValueError:
+                continue
+            if ":" not in parts[1] or ":" not in parts[2]:
+                continue
+            lip, lport = _split_win_addr(parts[1])
+            rip, rport = _split_win_addr(parts[2])
+            conns.append({"pid": pid, "name": pid_name.get(pid, f"pid{pid}"),
+                          "proto": proto, "local_ip": lip, "local_port": lport,
+                          "remote_ip": rip, "remote_port": rport,
+                          "state": parts[3] if proto == "TCP" else ""})
+    except Exception:
+        pass
+    return conns
+
+
+def _split_win_addr(s):
+    if s.startswith("["):
+        ip, port = s.rsplit("]:", 1)
+        ip = ip[1:]
+    else:
+        ip, port = s.rsplit(":", 1)
+    return ip, int(port)
+
+
+def get_process_connections():
+    """返回本机所有 TCP/UDP 连接与进程的关联，含远端地址与状态。
+
+    Linux 用 /proc（fd inode 关联），Windows 用 netstat + tasklist。
+    """
+    if os.path.isdir("/proc"):
+        return _connections_linux()
+    if os.name == "nt":
+        return _connections_windows()
+    return []

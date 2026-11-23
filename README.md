@@ -43,12 +43,12 @@ python app.py        # 或右键 run.bat 以管理员身份运行
 ## 演示测试流量（无外网也能演示）
 
 ```bash
-# 终端 1：造 HTTP 流量（起本地服务并每秒请求 1 次）
+# 终端 1：生成多协议流量（HTTP/DNS/TLS/ICMP/UDP，每秒一轮）
 python traffic.py
 
 # 终端 2：启动嗅探器，网页里选回环网卡开始抓包
 #   Linux 选 lo；Windows 选 \Device\NPF_Loopback
-#   抓包过滤可填：tcp port 8080
+#   抓包过滤可留空，一次看到 TCP/HTTP/TLS/DNS/ICMP/UDP 六种协议
 ```
 
 ## 运行测试
@@ -65,7 +65,7 @@ EX1A/
 ├── capture.py      # libpcap/Npcap ctypes 封装 + 原始套接字回退 + pcap 导出
 ├── parser.py       # 逐层协议解析（含 TLS SNI、IPv6 扩展头）
 ├── flow.py         # 流追踪 + 进程映射
-├── traffic.py      # 测试流量生成
+├── traffic.py      # 多协议测试流量生成（HTTP/DNS/TLS/ICMP/UDP）
 ├── run.sh / run.bat# 一键启动
 ├── static/index.html  # 前端（三栏可拖拽、会话面板、统计图表、快捷键）
 ├── tests/          # 单元测试（unittest）

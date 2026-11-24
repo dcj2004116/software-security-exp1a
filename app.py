@@ -251,6 +251,7 @@ class Handler(BaseHTTPRequestHandler):
                 capture_obj.close()
                 tracker.reset()
                 _raw_cache.clear()
+                counter["n"] = 0
                 _stats.update({"total": 0, "bytes": 0, "protos": {},
                                "src": {}, "dst": {}})
                 device = data.get("device", "")

@@ -187,6 +187,8 @@
     <div class="field"><label>抓包过滤</label><input id="bpfFilter" type="text" placeholder="如 tcp port 8080" title="libpcap BPF 表达式"></div>
     <div class="field"><label>显示过滤</label><select id="displayFilter" onchange="applyFilters()">
       <option value="ALL">全部协议</option>
+      <option value="IPv4">IPv4</option>
+      <option value="IPv6">IPv6</option>
       <option value="TCP">TCP</option>
       <option value="UDP">UDP</option>
       <option value="ICMP">ICMP</option>
@@ -424,6 +426,8 @@ function matchFilter(p){
   if(f&&f!=="ALL"){
     if(f==="TCP"){if(p.transport!=="TCP")return false;}
     else if(f==="UDP"){if(p.transport!=="UDP")return false;}
+    else if(f==="IPv4"){if(p.ip_version!=="IPv4")return false;}
+    else if(f==="IPv6"){if(p.ip_version!=="IPv6")return false;}
     else if(p.proto!==f)return false;
   }
   if(searchText){

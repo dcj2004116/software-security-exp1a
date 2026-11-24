@@ -447,6 +447,7 @@ def _parse_ip(data: bytes, layers: list, pkt: dict, v6: bool) -> None:
         layers.append(layer)
         pkt["src_ip"] = layer["fields"]["Source"]
         pkt["dst_ip"] = layer["fields"]["Destination"]
+        pkt["ip_version"] = "IPv6"
         pkt["src"], pkt["dst"] = pkt["src_ip"], pkt["dst_ip"]
         if nh == 6:
             l2, r2, ports = parse_tcp(rest)
@@ -473,6 +474,7 @@ def _parse_ip(data: bytes, layers: list, pkt: dict, v6: bool) -> None:
         layers.append(layer)
         pkt["src_ip"] = layer["fields"]["Source"]
         pkt["dst_ip"] = layer["fields"]["Destination"]
+        pkt["ip_version"] = "IPv4"
         pkt["src"], pkt["dst"] = pkt["src_ip"], pkt["dst_ip"]
         if proto == 6:
             l2, r2, ports = parse_tcp(rest)
@@ -502,7 +504,7 @@ def parse(raw: bytes, ts: float, linktype: int = DLT_EN10MB,
         "no": no, "ts": ts, "len": length, "caplen": len(raw),
         "proto": "Unknown", "src": "", "dst": "",
         "sport": None, "dport": None,
-        "src_ip": "", "dst_ip": "",
+        "src_ip": "", "dst_ip": "", "ip_version": "",
         "seq": None, "ack": None,
         "transport": "",
         "flags": "",

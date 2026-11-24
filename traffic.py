@@ -42,10 +42,23 @@ def _ensure_cert() -> bool:
         return False
 
 
+class _HTTPServer6(http.server.HTTPServer):
+    address_family = socket.AF_INET6
+
+
 def _serve_http() -> None:
     httpd = http.server.HTTPServer(("127.0.0.1", 8080),
                                    http.server.SimpleHTTPRequestHandler)
     httpd.serve_forever()
+
+
+def _serve_http6() -> None:
+    """IPv6 回环 HTTP 服务（::1:8081），用于演示 IPv6 解析。"""
+    try:
+        httpd = _HTTPServer6(("::1", 8081), http.server.SimpleHTTPRequestHandler)
+        httpd.serve_forever()
+    except OSError:
+        print("[HTTP6] 无法监听 ::1:8081", flush=True)
 
 
 def _serve_https() -> None:
@@ -106,6 +119,16 @@ def _http_request() -> None:
         pass
 
 
+def _http6_request() -> None:
+    try:
+        s = socket.create_connection(("::1", 8081), timeout=2)
+        s.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        s.recv(4096)
+        s.close()
+    except OSError:
+        pass
+
+
 def _dns_query() -> None:
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -152,11 +175,12 @@ def _ping() -> None:
 
 def main() -> None:
     threading.Thread(target=_serve_http, daemon=True).start()
+    threading.Thread(target=_serve_http6, daemon=True).start()
     threading.Thread(target=_serve_https, daemon=True).start()
     threading.Thread(target=_serve_dns, daemon=True).start()
     threading.Thread(target=_udp_echo, daemon=True).start()
     time.sleep(1)
-    print("开始持续生成多协议测试流量（DNS/UDP/ICMP 高频，HTTP/TLS 低频，Ctrl+C 停止）...")
+    print("开始持续生成多协议测试流量（DNS/UDP/ICMP 高频，HTTP/TLS/IPv6 低频，Ctrl+C 停止）...")
     try:
         counter = 0
         while True:
@@ -172,6 +196,8 @@ def main() -> None:
                 _http_request()
             if counter % 6 == 0:
                 _https_request()
+            if counter % 8 == 0:
+                _http6_request()
             time.sleep(0.4)
     except KeyboardInterrupt:
         pass

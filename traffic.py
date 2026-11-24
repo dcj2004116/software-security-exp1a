@@ -156,15 +156,23 @@ def main() -> None:
     threading.Thread(target=_serve_dns, daemon=True).start()
     threading.Thread(target=_udp_echo, daemon=True).start()
     time.sleep(1)
-    print("开始持续生成多协议测试流量（HTTP/DNS/TLS/ICMP/UDP，Ctrl+C 停止）...")
+    print("开始持续生成多协议测试流量（DNS/UDP/ICMP 高频，HTTP/TLS 低频，Ctrl+C 停止）...")
     try:
+        counter = 0
         while True:
-            _http_request()
+            counter += 1
+            # 无连接协议，每轮多次（DNS/UDP/ICMP 只产生 2 个包，靠数量拉高比例）
             _dns_query()
-            _https_request()
+            _dns_query()
+            _udp_chatter()
             _udp_chatter()
             _ping()
-            time.sleep(1)
+            # 有连接协议，低频（每次连接有握手+挥手，TCP 包多，所以少做）
+            if counter % 4 == 0:
+                _http_request()
+            if counter % 6 == 0:
+                _https_request()
+            time.sleep(0.4)
     except KeyboardInterrupt:
         pass
 
